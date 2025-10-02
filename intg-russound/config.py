@@ -1,55 +1,51 @@
-"""Constants for the Russound integration."""
+"""Configuration handling for Russound integration."""
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Any
 
-DRIVER_ID = "russound_rio"
-DRIVER_VERSION = "1.0.0"
+_LOG = logging.getLogger(__name__)
 
-# Default connection settings
-DEFAULT_PORT = 9621
-DEFAULT_NAME = "Russound"
 
-# Zone configuration
-MAX_ZONES = 8
-MAX_SOURCES = 8
+class RussoundConfig:
+    """Configuration manager for Russound integration."""
 
-# Volume settings
-MIN_VOLUME = 0
-MAX_VOLUME = 50
-VOLUME_STEP = 2
+    def __init__(self):
+        """Initialize configuration manager."""
+        self.config_dir = os.getenv("UC_CONFIG_HOME", str(Path.home()))
+        self.config_file = Path(self.config_dir) / "russound.json"
+        self.config = {}
 
-# Media player states
-STATE_ON = "ON"
-STATE_OFF = "OFF"
-STATE_PLAYING = "PLAYING"
-STATE_PAUSED = "PAUSED"
-STATE_IDLE = "IDLE"
+    def load(self):
+        """Load configuration from file."""
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, "r") as f:
+                    self.config = json.load(f)
+                    _LOG.info("Configuration loaded from %s", self.config_file)
+            except Exception as ex:
+                _LOG.error("Failed to load configuration: %s", ex)
+                self.config = {}
+        return self.config
 
-# Features
-FEATURES = [
-    "on_off",
-    "volume",
-    "volume_up_down",
-    "mute_toggle",
-    "select_source",
-    "media_title",
-    "media_artist",
-    "media_album",
-    "media_image_url"
-]
+    def save(self, config):
+        """Save configuration to file."""
+        try:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.config_file, "w") as f:
+                json.dump(config, f, indent=2)
+            self.config = config
+            _LOG.info("Configuration saved to %s", self.config_file)
+            return True
+        except Exception as ex:
+            _LOG.error("Failed to save configuration: %s", ex)
+            return False
 
-# Commands
-CMD_ON = "on"
-CMD_OFF = "off"
-CMD_TOGGLE = "toggle"
-CMD_VOLUME = "volume"
-CMD_VOLUME_UP = "volume_up"
-CMD_VOLUME_DOWN = "volume_down"
-CMD_MUTE_TOGGLE = "mute_toggle"
-CMD_SELECT_SOURCE = "select_source"
+    def get(self, key, default=None):
+        """Get configuration value."""
+        return self.config.get(key, default)
 
-# Tone controls
-MIN_BASS = -10
-MAX_BASS = 10
-MIN_TREBLE = -10
-MAX_TREBLE = 10
-MIN_BALANCE = -10
-MAX_BALANCE = 10
+    def set(self, key, value):
+        """Set configuration value."""
+        self.config[key] = value
