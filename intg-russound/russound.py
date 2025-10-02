@@ -21,17 +21,17 @@ _LOG = logging.getLogger(__name__)
 class RussoundController:
     """Russound RIO controller interface."""
 
-    def __init__(self, host: str, port: int = 9621):
+    def __init__(self, host, port=9621):
         """Initialize Russound controller."""
         self.host = host
         self.port = port
-        self.client: aiorussound.RussoundClient | None = None
-        self.zones: dict[int, dict[str, Any]] = {}
-        self.sources: dict[int, dict[str, Any]] = {}
-        self.callbacks: list[Callable] = []
+        self.client = None
+        self.zones = {}
+        self.sources = {}
+        self.callbacks = []
         self._connection_task = None
 
-    async def connect(self) -> bool:
+    async def connect(self):
         """Connect to Russound controller."""
         try:
             _LOG.info("Connecting to Russound at %s:%s", self.host, self.port)
@@ -51,7 +51,7 @@ class RussoundController:
             _LOG.error("Failed to connect to Russound: %s", ex)
             return False
 
-    async def disconnect(self) -> None:
+    async def disconnect(self):
         """Disconnect from Russound controller."""
         if self.client:
             try:
@@ -62,7 +62,7 @@ class RussoundController:
             finally:
                 self.client = None
 
-    async def _discover(self) -> None:
+    async def _discover(self):
         """Discover zones and sources."""
         if not self.client:
             return
@@ -111,7 +111,7 @@ class RussoundController:
         except Exception as ex:
             _LOG.error("Error discovering devices: %s", ex)
 
-    def _handle_state_update(self, controller_id: int, zone_id: int, updates: dict) -> None:
+    def _handle_state_update(self, controller_id, zone_id, updates):
         """Handle state updates from controller."""
         if zone_id in self.zones:
             self.zones[zone_id].update(updates)
@@ -124,17 +124,17 @@ class RussoundController:
                 except Exception as ex:
                     _LOG.error("Error in state update callback: %s", ex)
 
-    def register_callback(self, callback: Callable) -> None:
+    def register_callback(self, callback):
         """Register callback for state updates."""
         if callback not in self.callbacks:
             self.callbacks.append(callback)
 
-    def unregister_callback(self, callback: Callable) -> None:
+    def unregister_callback(self, callback):
         """Unregister callback."""
         if callback in self.callbacks:
             self.callbacks.remove(callback)
 
-    async def zone_on(self, zone_id: int) -> bool:
+    async def zone_on(self, zone_id):
         """Turn zone on."""
         if not self.client or zone_id not in self.zones:
             return False
@@ -149,7 +149,7 @@ class RussoundController:
             _LOG.error("Error turning zone %s on: %s", zone_id, ex)
         return False
 
-    async def zone_off(self, zone_id: int) -> bool:
+    async def zone_off(self, zone_id):
         """Turn zone off."""
         if not self.client or zone_id not in self.zones:
             return False
@@ -164,7 +164,7 @@ class RussoundController:
             _LOG.error("Error turning zone %s off: %s", zone_id, ex)
         return False
 
-    async def set_volume(self, zone_id: int, volume: int) -> bool:
+    async def set_volume(self, zone_id, volume):
         """Set zone volume (0-50)."""
         if not self.client or zone_id not in self.zones:
             return False
@@ -181,7 +181,7 @@ class RussoundController:
             _LOG.error("Error setting zone %s volume: %s", zone_id, ex)
         return False
 
-    async def volume_up(self, zone_id: int) -> bool:
+    async def volume_up(self, zone_id):
         """Increase zone volume."""
         if zone_id not in self.zones:
             return False
@@ -189,7 +189,7 @@ class RussoundController:
         current_volume = self.zones[zone_id].get("volume", 0)
         return await self.set_volume(zone_id, current_volume + 2)
 
-    async def volume_down(self, zone_id: int) -> bool:
+    async def volume_down(self, zone_id):
         """Decrease zone volume."""
         if zone_id not in self.zones:
             return False
@@ -197,7 +197,7 @@ class RussoundController:
         current_volume = self.zones[zone_id].get("volume", 0)
         return await self.set_volume(zone_id, current_volume - 2)
 
-    async def mute_toggle(self, zone_id: int) -> bool:
+    async def mute_toggle(self, zone_id):
         """Toggle zone mute."""
         if not self.client or zone_id not in self.zones:
             return False
@@ -213,7 +213,7 @@ class RussoundController:
             _LOG.error("Error toggling zone %s mute: %s", zone_id, ex)
         return False
 
-    async def select_source(self, zone_id: int, source_id: int) -> bool:
+    async def select_source(self, zone_id, source_id):
         """Select source for zone."""
         if not self.client or zone_id not in self.zones:
             return False
@@ -228,56 +228,11 @@ class RussoundController:
             _LOG.error("Error selecting source %s for zone %s: %s", source_id, zone_id, ex)
         return False
 
-    async def set_bass(self, zone_id: int, level: int) -> bool:
-        """Set zone bass level (-10 to 10)."""
-        if not self.client or zone_id not in self.zones:
-            return False
-        
-        try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_bass(level)
-                return True
-        except Exception as ex:
-            _LOG.error("Error setting zone %s bass: %s", zone_id, ex)
-        return False
-
-    async def set_treble(self, zone_id: int, level: int) -> bool:
-        """Set zone treble level (-10 to 10)."""
-        if not self.client or zone_id not in self.zones:
-            return False
-        
-        try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_treble(level)
-                return True
-        except Exception as ex:
-            _LOG.error("Error setting zone %s treble: %s", zone_id, ex)
-        return False
-
-    async def set_balance(self, zone_id: int, level: int) -> bool:
-        """Set zone balance (-10 to 10)."""
-        if not self.client or zone_id not in self.zones:
-            return False
-        
-        try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_balance(level)
-                return True
-        except Exception as ex:
-            _LOG.error("Error setting zone %s balance: %s", zone_id, ex)
-        return False
-
-    def get_zone_state(self, zone_id: int) -> dict[str, Any] | None:
+    def get_zone_state(self, zone_id):
         """Get current zone state."""
         return self.zones.get(zone_id)
 
-    def get_source_name(self, source_id: int) -> str:
+    def get_source_name(self, source_id):
         """Get source name."""
         if source_id in self.sources:
             return self.sources[source_id]["name"]
