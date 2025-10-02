@@ -1,4 +1,3 @@
-```python
 #!/usr/bin/env python3
 """Russound RIO Integration Driver for Unfolded Circle Remote."""
 import asyncio
@@ -284,4 +283,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
