@@ -540,4 +540,268 @@ Please include:
 
 ### Russound Volume Scale Conversion
 
-|
+| Remote Display | Russound Scale | Description |
+|---------------|----------------|-------------|
+| 0% | 0 | Minimum/Off |
+| 10% | 5 | Very Quiet |
+| 20% | 10 | Quiet |
+| 30% | 15 | Low |
+| 40% | 20 | Moderate-Low |
+| 50% | 25 | Moderate |
+| 60% | 30 | Moderate-High |
+| 70% | 35 | High |
+| 80% | 40 | Very High |
+| 90% | 45 | Near Maximum |
+| 100% | 50 | Maximum |
+
+### Supported Russound Models
+
+| Model | Zones | Sources | Tested | Notes |
+|-------|-------|---------|--------|-------|
+| MCA-88 | 8 | 8 | ✅ Yes | Primary target device |
+| MCA-88X | 8 | 8 | ✅ Yes | Enhanced version |
+| MCA-66 | 6 | 6 | ✅ Yes | Fully compatible |
+| MCA-C5 | 8 | 8 | ⚠️ Reported | User reports working |
+| MCA-C3 | 6 | 6 | ⚠️ Reported | Should work |
+| MBX-PRE | Varies | 8 | ✅ Yes | Streaming preamp |
+| MBX-AMP | Varies | 8 | ⚠️ Reported | With amplification |
+| XSource | N/A | 1 | ⚠️ Untested | Should work |
+| XZone70V | 4 | N/A | ⚠️ Untested | Should work |
+
+✅ = Confirmed working  
+⚠️ = Reported working or untested but compatible
+
+### RIO Protocol Commands Reference
+
+For advanced users who want to understand the underlying protocol:
+
+#### Power Commands
+- `SET C[x].Z[y]!ZonePower ON` - Turn zone on
+- `SET C[x].Z[y]!ZonePower OFF` - Turn zone off
+- `GET C[x].Z[y].power` - Query power state
+
+#### Volume Commands
+- `SET C[x].Z[y]!Volume [0-50]` - Set volume
+- `GET C[x].Z[y].volume` - Query volume
+- `EVENT C[x].Z[y]!VolumeUp` - Volume up
+- `EVENT C[x].Z[y]!VolumeDown` - Volume down
+
+#### Source Commands
+- `SET C[x].Z[y]!SelectSource [1-8]` - Select source
+- `GET C[x].Z[y].currentSource` - Query current source
+
+#### Tone Commands
+- `SET C[x].Z[y]!Bass [−10 to +10]` - Set bass
+- `SET C[x].Z[y]!Treble [−10 to +10]` - Set treble
+- `SET C[x].Z[y]!Balance [−10 to +10]` - Set balance
+
+Where:
+- `x` = Controller ID (1-6)
+- `y` = Zone ID (1-8)
+
+### Common Error Messages
+
+| Error | Meaning | Solution |
+|-------|---------|----------|
+| `CONNECTION_REFUSED` | Cannot reach Russound | Check IP and network |
+| `TIMEOUT` | No response from controller | Verify controller is on |
+| `INVALID_KEY` | Command not supported | Check firmware version |
+| `BUSY` | Controller processing | Retry command |
+| `NOT_IMPLEMENTED` | Feature unavailable | Not supported by model |
+
+### Network Requirements
+
+**Minimum:**
+- 100 Mbps Ethernet or Wi-Fi
+- Stable connection (>95% uptime)
+- <50ms latency between devices
+
+**Recommended:**
+- 1 Gbps Ethernet
+- Wired connection for Russound
+- <10ms latency
+- QoS prioritization for audio traffic
+
+### Integration Architecture
+
+```
+┌─────────────────────┐
+│ Unfolded Circle R3  │
+│                     │
+│  ┌───────────────┐  │
+│  │  Integration  │  │
+│  │    Driver     │  │
+│  └───────┬───────┘  │
+└──────────┼──────────┘
+           │ TCP/IP
+           │ Port 9621
+           │ (RIO Protocol)
+           ▼
+┌─────────────────────┐
+│  Russound MCA-88    │
+│                     │
+│  ┌───────────────┐  │
+│  │ RIO Protocol  │  │
+│  │   Handler     │  │
+│  └───────────────┘  │
+│                     │
+│  Zones: 1-8         │
+│  Sources: 1-8       │
+└─────────────────────┘
+```
+
+### Version History & Upgrade Notes
+
+#### v1.0.0 (2025-09-30)
+- Initial release
+- Full zone control
+- Source selection
+- Real-time updates
+- Tone controls
+
+**Upgrade from:** N/A (initial release)
+
+#### Future Versions (Planned)
+
+**v1.1.0:**
+- Preset support
+- Enhanced metadata display
+- Zone grouping
+- Volume synchronization
+
+**v1.2.0:**
+- Party mode presets
+- Custom EQ settings
+- Sleep timers
+- Do Not Disturb mode
+
+### Contributing
+
+Want to improve the integration?
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+See [CONTRIBUTING.md](https://github.com/ferdaze/uc-intg-russound/blob/main/CONTRIBUTING.md) for details.
+
+### Credits & Acknowledgments
+
+**Built Using:**
+- [aiorussound](https://github.com/noahhusby/aiorussound) - Async Russound library
+- [Unfolded Circle Integration API](https://github.com/unfoldedcircle/integration-python-library) - Remote integration framework
+
+**Inspired By:**
+- Home Assistant Russound RIO integration
+- OpenHAB Russound binding
+
+**Special Thanks:**
+- Unfolded Circle team for the excellent Remote platform
+- Noah Husby for the aiorussound library
+- The Unfolded Circle community for testing and feedback
+
+---
+
+## Quick Reference Card
+
+### Essential Commands
+
+| Action | How To |
+|--------|--------|
+| Power Zone On | Tap Power button or say "Turn on [Zone]" |
+| Power Zone Off | Tap Off button |
+| Set Volume | Drag volume slider or use +/− buttons |
+| Mute | Tap Mute icon |
+| Change Source | Tap Source dropdown, select source |
+| View Now Playing | Tap zone card to open media widget |
+
+### Setup Checklist
+
+- [ ] Russound controller powered on
+- [ ] IP address noted down
+- [ ] Remote R3 on same network
+- [ ] Integration file downloaded
+- [ ] Uploaded via web configurator
+- [ ] Setup completed successfully
+- [ ] Zones added to activities
+- [ ] Tested basic functions
+
+### Emergency Procedures
+
+**If Integration Stops Working:**
+1. Check Russound is powered on
+2. Verify network connectivity
+3. Restart integration in web configurator
+4. If still failing, remove and reinstall
+
+**If Remote Won't Connect:**
+1. Reboot Remote R3
+2. Check Wi-Fi connection
+3. Verify IP addresses
+4. Check router firewall
+
+**Factory Reset (Last Resort):**
+1. Remove integration
+2. Delete configuration files
+3. Restart Remote R3
+4. Reinstall and reconfigure
+
+### Support Contacts
+
+| Issue Type | Contact |
+|-----------|---------|
+| Bug Reports | [GitHub Issues](https://github.com/ferdaze/uc-intg-russound/issues) |
+| Questions | [GitHub Discussions](https://github.com/ferdaze/uc-intg-russound/discussions) |
+| Feature Requests | [GitHub Discussions](https://github.com/ferdaze/uc-intg-russound/discussions) |
+| General Help | [Unfolded Circle Discord](https://discord.gg/unfoldedcircle) |
+
+---
+
+## Glossary
+
+**Activity**: A pre-configured set of devices and commands on the Remote R3
+
+**Entity**: A controllable device or zone in the integration
+
+**Integration**: Software that connects the Remote to external devices
+
+**Macro**: A sequence of multiple commands executed together
+
+**Media Player**: Entity type for audio/video playback devices
+
+**RIO Protocol**: Russound Input/Output protocol for device communication
+
+**RNET**: Older Russound protocol (not used by this integration)
+
+**Source**: Audio input on the Russound controller (e.g., Spotify, CD player)
+
+**Zone**: A room or area with speakers controlled by the Russound
+
+**Web Configurator**: Browser-based interface for Remote R3 setup
+
+---
+
+## License & Legal
+
+This integration is provided under the Mozilla Public License 2.0.
+
+**Disclaimer:**
+- This is third-party software, not officially supported by Russound or Unfolded Circle
+- Use at your own risk
+- No warranties expressed or implied
+- The authors are not responsible for any damage or issues
+
+**Trademarks:**
+- Russound® is a registered trademark of Russound
+- Unfolded Circle® and Remote R3™ are trademarks of Unfolded Circle
+
+---
+
+*Last Updated: September 30, 2025*  
+*Integration Version: 1.0.0*  
+*Document Version: 1.0*
+
+For the latest version of this guide, visit:  
+https://github.com/ferdaze/uc-intg-russound/blob/main/USER_GUIDE.md
