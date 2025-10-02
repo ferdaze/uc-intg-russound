@@ -1,3 +1,4 @@
+```yaml
 name: Build and Release
 
 on:
@@ -64,6 +65,9 @@ jobs:
             3. Navigate to Integrations > Add Integration > Install Custom
             4. Upload the .tar.gz file
             5. Follow the setup wizard
+            
+            ## Changelog
+            See [CHANGELOG.md](CHANGELOG.md) for details.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -73,3 +77,4 @@ jobs:
         with:
           name: uc-intg-russound
           path: uc-intg-russound.tar.gz
+```
