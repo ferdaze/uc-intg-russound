@@ -1,4 +1,3 @@
-```python
 """Configuration handling for Russound integration."""
 import json
 import logging
@@ -50,4 +49,3 @@ class RussoundConfig:
     def set(self, key: str, value: Any) -> None:
         """Set configuration value."""
         self.config[key] = value
-```
