@@ -1,4 +1,3 @@
-```python
 """Russound RIO protocol handler."""
 import asyncio
 import logging
@@ -283,4 +282,3 @@ class RussoundController:
         if source_id in self.sources:
             return self.sources[source_id]["name"]
         return f"Source {source_id}"
-```
