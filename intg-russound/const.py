@@ -1,4 +1,3 @@
-```python
 """Constants for the Russound integration."""
 
 DRIVER_ID = "russound_rio"
@@ -54,4 +53,3 @@ MIN_TREBLE = -10
 MAX_TREBLE = 10
 MIN_BALANCE = -10
 MAX_BALANCE = 10
-```
