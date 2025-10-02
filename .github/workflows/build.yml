@@ -1,0 +1,75 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build with PyInstaller
+        run: |
+          docker run --rm \
+            --platform=linux/arm64 \
+            -v "$PWD":/workspace \
+            -w /workspace \
+            docker.io/unfoldedcircle/r2-pyinstaller:3.11.13-0.4.0 \
+            bash -c "python -m pip install -r requirements.txt && \
+                     pyinstaller --clean --onedir --name driver intg-russound/driver.py"
+
+      - name: Create bin directory
+        run: |
+          mkdir -p bin
+          cp -r dist/driver/* bin/
+
+      - name: Create tarball
+        run: |
+          tar -czf uc-intg-russound.tar.gz driver.json bin/
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=dev-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: uc-intg-russound.tar.gz
+          body: |
+            Russound RIO Integration for Unfolded Circle Remote R3
+            
+            Version: ${{ steps.get_version.outputs.VERSION }}
+            
+            ## Installation
+            1. Download the `uc-intg-russound.tar.gz` file
+            2. Open your Remote R3 web configurator
+            3. Navigate to Integrations > Add Integration > Install Custom
+            4. Upload the .tar.gz file
+            5. Follow the setup wizard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v3
+        with:
+          name: uc-intg-russound
+          path: uc-intg-russound.tar.gz
