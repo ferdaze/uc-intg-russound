@@ -19,17 +19,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify file structure
-        run: |
-          echo "=== Repository structure ==="
-          ls -la
-          echo "=== Python package ==="
-          ls -la intg-russound/
-          echo "=== Checking required files ==="
-          test -f driver.json && echo "✓ driver.json exists" || echo "✗ driver.json missing"
-          test -f requirements.txt && echo "✓ requirements.txt exists" || echo "✗ requirements.txt missing"
-          test -f intg-russound/driver.py && echo "✓ driver.py exists" || echo "✗ driver.py missing"
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -58,46 +47,25 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          echo "=== Starting PyInstaller build ==="
           docker run --rm \
             --platform=linux/arm64 \
+            --user=$(id -u):$(id -g) \
             -v "$PWD":/workspace \
             -w /workspace \
             docker.io/unfoldedcircle/r2-pyinstaller:3.11.13-0.4.0 \
             bash -c "
-              echo 'Installing dependencies...' && \
               python -m pip install --no-cache-dir -r requirements.txt && \
-              echo 'Running PyInstaller...' && \
-              pyinstaller --clean --onedir --name driver intg-russound/driver.py && \
-              echo 'Build complete!' && \
-              ls -la dist/
+              pyinstaller --clean --onedir --name driver intg-russound/driver.py
             "
 
-      - name: Verify build output
+      - name: Create bin directory
         run: |
-          echo "=== Checking build output ==="
-          ls -la dist/ || echo "dist/ directory not found"
-          ls -la dist/driver/ || echo "dist/driver/ directory not found"
-          test -f dist/driver/driver && echo "✓ driver binary created" || echo "✗ driver binary missing"
-
-      - name: Create bin directory and copy files
-        run: |
-          echo "=== Creating package structure ==="
           mkdir -p bin
           cp -r dist/driver/* bin/
-          echo "=== bin/ contents ==="
-          ls -la bin/
-          echo "=== Verifying driver binary ==="
-          test -f bin/driver && echo "✓ driver copied successfully" || exit 1
 
       - name: Create tarball
         run: |
-          echo "=== Creating tarball: ${{ steps.get_version.outputs.FILENAME }} ==="
           tar -czf ${{ steps.get_version.outputs.FILENAME }} driver.json bin/
-          echo "=== Tarball created ==="
-          ls -lh ${{ steps.get_version.outputs.FILENAME }}
-          echo "=== Tarball contents ==="
-          tar -tzf ${{ steps.get_version.outputs.FILENAME }} | head -20
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -112,18 +80,4 @@ jobs:
             ## Installation
             1. Download the `${{ steps.get_version.outputs.FILENAME }}` file
             2. Open your Remote R3 web configurator
-            3. Navigate to Integrations > Add Integration > Install Custom
-            4. Upload the .tar.gz file
-            5. Follow the setup wizard
-            
-            ## Changelog
-            See [CHANGELOG.md](CHANGELOG.md) for details.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: uc-intg-russound-v${{ steps.get_version.outputs.VERSION }}
-          path: ${{ steps.get_version.outputs.FILENAME }}
-          retention-days: 30
+            3. Navigate to Integrations > Add Integration > Install Cus
