@@ -1,54 +1,60 @@
-#!/usr/bin/env python3
-"""
-Simplified Russound RIO Integration Driver for Unfolded Circle Remote
-This is a minimal working version for testing the build process
-"""
-import asyncio
-import logging
-import sys
-
-# Test if ucapi can be imported
-try:
-    import ucapi
-    from ucapi import IntegrationAPI, StatusCodes
-except ImportError:
-    print("ERROR: ucapi not found. Install with: pip install ucapi")
-    sys.exit(1)
-
-logging.basicConfig(level=logging.INFO)
-_LOG = logging.getLogger(__name__)
-
-# Driver configuration
-DRIVER_ID = "russound_rio"
-DRIVER_VERSION = "1.0.0"
-
-
-def main():
-    """Main entry point."""
-    _LOG.info("Starting Russound Integration Driver v%s", DRIVER_VERSION)
-    
-    # Create API instance
-    api = IntegrationAPI(DRIVER_ID)
-    
-    # Simple setup handler
-    async def handle_setup(msg):
-        _LOG.info("Setup called with: %s", msg.setup_data)
-        return ucapi.SetupComplete()
-    
-    # Register setup handler
-    api.set_setup_handler(handle_setup)
-    
-    try:
-        # Initialize and run
-        api.init("driver.json")
-        _LOG.info("Driver initialized successfully")
-        api.loop.run_forever()
-    except KeyboardInterrupt:
-        _LOG.info("Shutting down...")
-    except Exception as e:
-        _LOG.error("Fatal error: %s", e)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+{
+  "driver_id": "russound_rio",
+  "version": "1.0.0",
+  "min_core_api": "1.0.0",
+  "name": {
+    "en": "Russound RIO"
+  },
+  "description": {
+    "en": "Integration for Russound MCA-88 and other RIO-compatible multi-zone audio controllers"
+  },
+  "port": 9095,
+  "developer": {
+    "name": "Russound Integration",
+    "url": "https://github.com/ferdaze/uc-intg-russound"
+  },
+  "home_page": "https://github.com/ferdaze/uc-intg-russound",
+  "setup_data_schema": {
+    "title": {
+      "en": "Russound RIO Setup"
+    },
+    "settings": [
+      {
+        "id": "host",
+        "label": {
+          "en": "IP Address"
+        },
+        "field": {
+          "text": {
+            "default": ""
+          }
+        }
+      },
+      {
+        "id": "port",
+        "label": {
+          "en": "Port"
+        },
+        "field": {
+          "number": {
+            "default": 9621,
+            "min": 1,
+            "max": 65535
+          }
+        }
+      },
+      {
+        "id": "name",
+        "label": {
+          "en": "Controller Name"
+        },
+        "field": {
+          "text": {
+            "default": "Russound"
+          }
+        }
+      }
+    ]
+  },
+  "release_date": "2025-09-30"
+}
