@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
 
 jobs:
   build:
@@ -19,6 +24,23 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "FILENAME=uc-intg-russound-v$VERSION.tar.gz" >> $GITHUB_OUTPUT
+          elif [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "FILENAME=uc-intg-russound-v$VERSION.tar.gz" >> $GITHUB_OUTPUT
+          else
+            VERSION="dev-$(date +%Y%m%d-%H%M%S)"
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "FILENAME=uc-intg-russound-$VERSION.tar.gz" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build with PyInstaller
         run: |
@@ -37,29 +59,20 @@ jobs:
 
       - name: Create tarball
         run: |
-          tar -czf uc-intg-russound.tar.gz driver.json bin/
-
-      - name: Get version
-        id: get_version
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            echo "VERSION=dev-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
-          fi
+          tar -czf ${{ steps.get_version.outputs.FILENAME }} driver.json bin/
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: uc-intg-russound.tar.gz
+          files: ${{ steps.get_version.outputs.FILENAME }}
           body: |
             Russound RIO Integration for Unfolded Circle Remote R3
             
-            Version: ${{ steps.get_version.outputs.VERSION }}
+            Version: v${{ steps.get_version.outputs.VERSION }}
             
             ## Installation
-            1. Download the `uc-intg-russound.tar.gz` file
+            1. Download the `${{ steps.get_version.outputs.FILENAME }}` file
             2. Open your Remote R3 web configurator
             3. Navigate to Integrations > Add Integration > Install Custom
             4. Upload the .tar.gz file
@@ -68,8 +81,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact
-        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: uc-intg-russound
-          path: uc-intg-russound.tar.gz
+          name: uc-intg-russound-v${{ steps.get_version.outputs.VERSION }}
+          path: ${{ steps.get_version.outputs.FILENAME }}
+          retention-days: 30
