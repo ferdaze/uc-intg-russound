@@ -10,7 +10,7 @@ on:
         description: 'Version number (e.g., 1.0.0)'
         required: true
         default: '1.0.0'
-        
+
 permissions:
   contents: write
 
@@ -58,13 +58,22 @@ jobs:
             docker.io/unfoldedcircle/r2-pyinstaller:3.11.13-0.4.0 \
             bash -c "
               python -m pip install --no-cache-dir -r requirements.txt && \
-              pyinstaller --clean --onedir --name intg-russound intg-russound/main.py
+              pyinstaller --clean --onedir --name driver intg-russound/driver.py
             "
+
+      - name: Verify build output
+        run: |
+          echo "=== Checking dist/ contents ==="
+          ls -la dist/
+          echo "=== Checking driver/ contents ==="
+          ls -la dist/driver/
 
       - name: Create bin directory
         run: |
           mkdir -p bin
           cp -r dist/driver/* bin/
+          echo "=== bin/ contents ==="
+          ls -la bin/
 
       - name: Create tarball
         run: |
@@ -83,4 +92,15 @@ jobs:
             ## Installation
             1. Download the `${{ steps.get_version.outputs.FILENAME }}` file
             2. Open your Remote R3 web configurator
-            3. Navigate to Integrations > Add Integration > Install Cus
+            3. Navigate to Integrations > Add Integration > Install Custom
+            4. Upload the .tar.gz file
+            5. Follow the setup wizard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uc-intg-russound-v${{ steps.get_version.outputs.VERSION }}
+          path: ${{ steps.get_version.outputs.FILENAME }}
+          retention-days: 30
