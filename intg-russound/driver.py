@@ -273,8 +273,12 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
-    driver = RussoundDriver()
-    driver.run()
+    try:
+        driver = RussoundDriver()
+        driver.run()
+    except Exception as e:
+        _LOG.error("Fatal error: %s", e, exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
