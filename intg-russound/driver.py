@@ -2,6 +2,7 @@
 """Russound RIO Integration Driver for Unfolded Circle Remote."""
 import asyncio
 import logging
+import os
 import sys
 from typing import Any
 
@@ -251,31 +252,43 @@ class RussoundDriver:
         for entity_id in self.entities.keys():
             await self._update_entity(entity_id)
 
-def run(self):
+    def run(self):
         """Run the integration driver."""
         _LOG.info("Starting Russound Integration Driver v%s", const.DRIVER_VERSION)
         
-        # Find driver.json - it should be in the parent directory of the binary
-        import os
-        driver_path = os.path.dirname(os.path.abspath(__file__))
-        
-        # When running as PyInstaller bundle, look in parent directory
+        # Find driver.json
         if getattr(sys, 'frozen', False):
-            # Running as compiled binary
+            # Running as PyInstaller bundle
             driver_path = os.path.dirname(sys.executable)
             driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
         else:
             # Running as script
+            driver_path = os.path.dirname(os.path.abspath(__file__))
             driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
         
+        _LOG.info("Driver path: %s", driver_path)
         _LOG.info("Looking for driver.json at: %s", driver_json)
+        
+        # Log environment variables
+        _LOG.info("Environment - UC_INTEGRATION_INTERFACE: %s", os.getenv("UC_INTEGRATION_INTERFACE", "not set"))
+        _LOG.info("Environment - UC_INTEGRATION_HTTP_PORT: %s", os.getenv("UC_INTEGRATION_HTTP_PORT", "not set"))
+        _LOG.info("Environment - UC_CONFIG_HOME: %s", os.getenv("UC_CONFIG_HOME", "not set"))
         
         if not os.path.exists(driver_json):
             _LOG.error("driver.json not found at %s", driver_json)
+            # List directory contents for debugging
+            parent_dir = os.path.dirname(driver_json)
+            _LOG.error("Contents of %s:", parent_dir)
+            try:
+                for item in os.listdir(parent_dir):
+                    _LOG.error("  - %s", item)
+            except Exception as e:
+                _LOG.error("Could not list directory: %s", e)
             sys.exit(1)
         
         try:
             self.api.init(driver_json)
+            _LOG.info("Integration API initialized successfully")
             self.api.loop.run_forever()
         except KeyboardInterrupt:
             _LOG.info("Shutting down...")
@@ -284,12 +297,16 @@ def run(self):
             sys.exit(1)
         finally:
             if self.controller:
-                asyncio.run(self.controller.disconnect())
+                try:
+                    asyncio.run(self.controller.disconnect())
+                except Exception as e:
+                    _LOG.error("Error during cleanup: %s", e)
+
 
 def main():
     """Main entry point."""
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -298,7 +315,7 @@ def main():
         driver = RussoundDriver()
         driver.run()
     except Exception as e:
-        _LOG.error("Fatal error: %s", e, exc_info=True)
+        _LOG.error("Fatal error in main: %s", e, exc_info=True)
         sys.exit(1)
 
 
