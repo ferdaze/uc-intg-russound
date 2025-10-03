@@ -58,7 +58,7 @@ jobs:
             docker.io/unfoldedcircle/r2-pyinstaller:3.11.13-0.4.0 \
             bash -c "
               python -m pip install --no-cache-dir -r requirements.txt && \
-              pyinstaller --clean --onedir --name driver intg-russound/driver.py
+              pyinstaller --clean --onedir --name intg-russound intg-russound/__main__.py
             "
 
       - name: Create bin directory
