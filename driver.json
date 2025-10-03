@@ -1,14 +1,14 @@
 {
   "driver_id": "russound_rio",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "min_core_api": "1.0.0",
   "name": {
     "en": "Russound RIO"
   },
   "description": {
-    "en": "Integration for Russound MCA-88 and other RIO-compatible multi-zone audio controllers"
+    "en": "Integration for Russound RIO-compatible multi-zone audio controllers"
   },
-  "port": 9095,
+  "port": 9621,
   "developer": {
     "name": "Russound Integration",
     "url": "https://github.com/ferdaze/uc-intg-russound"
@@ -33,7 +33,7 @@
       {
         "id": "port",
         "label": {
-          "en": "Port"
+          "en": "Russound Port"
         },
         "field": {
           "number": {
