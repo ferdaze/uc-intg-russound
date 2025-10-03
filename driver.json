@@ -6,9 +6,9 @@
     "en": "Russound RIO"
   },
   "description": {
-    "en": "Integration for Russound RIO-compatible multi-zone audio controllers"
+    "en": "Integration for Russound MCA-88 and other RIO-compatible multi-zone audio controllers"
   },
-  "port": 9621,
+  "port": 9090,
   "developer": {
     "name": "Russound Integration",
     "url": "https://github.com/ferdaze/uc-intg-russound"
@@ -33,7 +33,7 @@
       {
         "id": "port",
         "label": {
-          "en": "Russound Port"
+          "en": "Port"
         },
         "field": {
           "number": {
