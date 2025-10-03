@@ -251,19 +251,40 @@ class RussoundDriver:
         for entity_id in self.entities.keys():
             await self._update_entity(entity_id)
 
-    def run(self):
+def run(self):
         """Run the integration driver."""
         _LOG.info("Starting Russound Integration Driver v%s", const.DRIVER_VERSION)
         
+        # Find driver.json - it should be in the parent directory of the binary
+        import os
+        driver_path = os.path.dirname(os.path.abspath(__file__))
+        
+        # When running as PyInstaller bundle, look in parent directory
+        if getattr(sys, 'frozen', False):
+            # Running as compiled binary
+            driver_path = os.path.dirname(sys.executable)
+            driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
+        else:
+            # Running as script
+            driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
+        
+        _LOG.info("Looking for driver.json at: %s", driver_json)
+        
+        if not os.path.exists(driver_json):
+            _LOG.error("driver.json not found at %s", driver_json)
+            sys.exit(1)
+        
         try:
-            self.api.init("driver.json")
+            self.api.init(driver_json)
             self.api.loop.run_forever()
         except KeyboardInterrupt:
             _LOG.info("Shutting down...")
+        except Exception as e:
+            _LOG.error("Fatal error: %s", e, exc_info=True)
+            sys.exit(1)
         finally:
             if self.controller:
                 asyncio.run(self.controller.disconnect())
-
 
 def main():
     """Main entry point."""
