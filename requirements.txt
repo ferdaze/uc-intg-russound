@@ -1,2 +1,2 @@
-ucapi>=0.3.0
+ucapi>=0.10.0
 aiorussound>=4.8.1
