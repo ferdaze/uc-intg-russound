@@ -19,34 +19,31 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Environments
-.env
-.venv
-env/
+# Virtual environments
 venv/
 ENV/
+env/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
-.DS_Store
-Thumbs.db
+# PyInstaller
+*.spec
 
-# Integration specific
-bin/
+# Configuration
 config/
-*.json.bak
-russound.json
+*.json
 
-# Build artifacts
+# Logs
+*.log
+
+# Distribution
+bin/
+artifacts/
 *.tar.gz
-*.zip
