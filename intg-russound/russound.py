@@ -5,6 +5,9 @@ from typing import Any, Callable
 
 import aiorussound
 
+# Use absolute import
+import const
+
 from .const import (
     MAX_SOURCES,
     MAX_ZONES,
