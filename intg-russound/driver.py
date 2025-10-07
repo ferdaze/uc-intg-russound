@@ -9,12 +9,12 @@ from typing import Any
 import ucapi
 from ucapi import media_player
 
-from . import const
-from .config import RussoundConfig
-from .russound import RussoundController
+# Use absolute imports instead of relative
+import const
+import config as config_module
+import russound as russound_module
 
 _LOG = logging.getLogger(__name__)
-
 
 class RussoundDriver:
     """Russound Integration Driver."""
