@@ -1,242 +1,402 @@
-"""Russound RIO protocol handler."""
+"""Russound device communication handler."""
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Callable, Optional
 
-import aiorussound
+from aiorussound import Russound, RussoundClient
+from aiorussound.models import Source, Zone, Controller
 
-# Use absolute import
-import const
-
-from .const import (
-    MAX_SOURCES,
-    MAX_ZONES,
-    MAX_VOLUME,
-    MIN_VOLUME,
-    STATE_OFF,
-    STATE_ON,
-    STATE_PLAYING,
+from const import (
+    RUSSOUND_VOL_MAX,
+    UI_VOL_MAX,
+    RECONNECT_DELAY_MIN,
+    RECONNECT_DELAY_MAX,
+    KEEPALIVE_INTERVAL,
 )
 
 _LOG = logging.getLogger(__name__)
 
 
-class RussoundController:
-    """Russound RIO controller interface."""
+class RussoundDevice:
+    """Manage connection and communication with Russound device."""
 
-    def __init__(self, host, port=9621):
-        """Initialize Russound controller."""
-        self.host = host
-        self.port = port
-        self.client = None
-        self.zones = {}
-        self.sources = {}
-        self.callbacks = []
-        self._connection_task = None
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        controller_id: int,
+        on_update: Optional[Callable] = None,
+        on_connection_change: Optional[Callable] = None,
+    ):
+        """Initialize Russound device handler.
+        
+        Args:
+            host: IP address of Russound device
+            port: TCP port (typically 9621)
+            controller_id: Controller ID (1-6)
+            on_update: Callback for zone/source updates
+            on_connection_change: Callback for connection state changes
+        """
+        self._host = host
+        self._port = port
+        self._controller_id = controller_id
+        self._on_update = on_update
+        self._on_connection_change = on_connection_change
+        
+        self._client: Optional[RussoundClient] = None
+        self._russound: Optional[Russound] = None
+        self._connected = False
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._keepalive_task: Optional[asyncio.Task] = None
+        self._reconnect_delay = RECONNECT_DELAY_MIN
 
-    async def connect(self):
-        """Connect to Russound controller."""
+    async def connect(self) -> bool:
+        """Connect to Russound device.
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
         try:
-            _LOG.info("Connecting to Russound at %s:%s", self.host, self.port)
-            self.client = aiorussound.RussoundClient(self.host, self.port)
+            _LOG.info("Connecting to Russound at %s:%s", self._host, self._port)
             
-            # Set up callbacks
-            self.client.register_state_update_callback(self._handle_state_update)
+            # Create device connection using aiorussound
+            self._russound = await Russound.create_device(self._host, self._port)
             
-            await self.client.connect()
-            _LOG.info("Successfully connected to Russound controller")
+            if not self._russound:
+                _LOG.error("Failed to create Russound device")
+                return False
             
-            # Discover zones and sources
-            await self._discover()
+            # Register callbacks for updates
+            controller = self._russound.controllers.get(self._controller_id)
+            if controller:
+                for zone in controller.zones.values():
+                    zone.add_callback(self._handle_zone_update)
+            
+            self._connected = True
+            self._reconnect_delay = RECONNECT_DELAY_MIN
+            _LOG.info("Successfully connected to Russound")
+            
+            if self._on_connection_change:
+                await self._on_connection_change(True)
+            
+            # Start keepalive task
+            if self._keepalive_task:
+                self._keepalive_task.cancel()
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
             
             return True
-        except Exception as ex:
-            _LOG.error("Failed to connect to Russound: %s", ex)
+            
+        except Exception as e:
+            _LOG.error("Failed to connect to Russound: %s", e)
+            self._connected = False
+            if self._on_connection_change:
+                await self._on_connection_change(False)
             return False
 
-    async def disconnect(self):
-        """Disconnect from Russound controller."""
-        if self.client:
+    async def disconnect(self) -> None:
+        """Disconnect from Russound device."""
+        _LOG.info("Disconnecting from Russound")
+        
+        self._connected = False
+        
+        # Cancel tasks
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+        
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+            self._keepalive_task = None
+        
+        # Close connection
+        if self._russound:
             try:
-                await self.client.disconnect()
-                _LOG.info("Disconnected from Russound controller")
-            except Exception as ex:
-                _LOG.error("Error disconnecting: %s", ex)
-            finally:
-                self.client = None
+                await self._russound.close()
+            except Exception as e:
+                _LOG.warning("Error closing Russound connection: %s", e)
+        
+        self._russound = None
+        
+        if self._on_connection_change:
+            await self._on_connection_change(False)
 
-    async def _discover(self):
-        """Discover zones and sources."""
-        if not self.client:
+    def _handle_zone_update(self, zone: Zone) -> None:
+        """Handle zone state update from Russound.
+        
+        Args:
+            zone: Updated zone object
+        """
+        _LOG.debug("Zone %s update received", zone.zone_id)
+        if self._on_update:
+            asyncio.create_task(self._on_update(zone))
+
+    async def _keepalive_loop(self) -> None:
+        """Send periodic keepalive to prevent device standby."""
+        while self._connected:
+            try:
+                await asyncio.sleep(KEEPALIVE_INTERVAL)
+                if self._connected and self._russound:
+                    # Send empty command as keepalive
+                    _LOG.debug("Sending keepalive")
+                    # The library handles this automatically
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                _LOG.error("Keepalive error: %s", e)
+
+    async def start_reconnect(self) -> None:
+        """Start automatic reconnection task."""
+        if self._reconnect_task and not self._reconnect_task.done():
             return
+        
+        _LOG.info("Starting reconnection task")
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
-        try:
-            # Get controller info
-            controllers = await self.client.enumerate_controllers()
+    async def _reconnect_loop(self) -> None:
+        """Automatic reconnection loop."""
+        while True:
+            try:
+                if not self._connected:
+                    _LOG.info(
+                        "Attempting to reconnect (delay: %s seconds)",
+                        self._reconnect_delay
+                    )
+                    await asyncio.sleep(self._reconnect_delay)
+                    
+                    success = await self.connect()
+                    
+                    if success:
+                        _LOG.info("Reconnection successful")
+                        break
+                    else:
+                        # Exponential backoff
+                        self._reconnect_delay = min(
+                            self._reconnect_delay * 2,
+                            RECONNECT_DELAY_MAX
+                        )
+                else:
+                    break
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                _LOG.error("Reconnection error: %s", e)
+                await asyncio.sleep(self._reconnect_delay)
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if connected to device."""
+        return self._connected
+
+    def get_controller(self) -> Optional[Controller]:
+        """Get controller object.
+        
+        Returns:
+            Controller object or None if not connected
+        """
+        if not self._russound:
+            return None
+        return self._russound.controllers.get(self._controller_id)
+
+    def get_zone(self, zone_id: int) -> Optional[Zone]:
+        """Get zone object by ID.
+        
+        Args:
+            zone_id: Zone ID (1-8)
             
-            if not controllers:
-                _LOG.warning("No controllers found")
-                return
+        Returns:
+            Zone object or None if not found
+        """
+        controller = self.get_controller()
+        if not controller:
+            return None
+        return controller.zones.get(zone_id)
+
+    def get_source(self, source_id: int) -> Optional[Source]:
+        """Get source object by ID.
+        
+        Args:
+            source_id: Source ID (1-12)
             
-            # Get zones
-            for controller_id in controllers:
-                zones = await self.client.enumerate_zones(controller_id)
-                for zone_id in zones:
-                    zone = self.client.get_zone(controller_id, zone_id)
-                    if zone:
-                        self.zones[zone_id] = {
-                            "id": zone_id,
-                            "controller_id": controller_id,
-                            "name": zone.name or f"Zone {zone_id}",
-                            "power": zone.power,
-                            "volume": zone.volume,
-                            "source": zone.source,
-                            "bass": zone.bass,
-                            "treble": zone.treble,
-                            "balance": zone.balance,
-                            "mute": zone.mute,
-                            "loudness": zone.loudness,
-                        }
-                        _LOG.info("Discovered zone %s: %s", zone_id, zone.name)
+        Returns:
+            Source object or None if not found
+        """
+        if not self._russound:
+            return None
+        return self._russound.sources.get(source_id)
+
+    @staticmethod
+    def volume_to_ui(russound_vol: int) -> int:
+        """Convert Russound volume (0-50) to UI volume (0-100).
+        
+        Args:
+            russound_vol: Russound volume level
             
-            # Get sources
-            for controller_id in controllers:
-                sources = await self.client.enumerate_sources(controller_id)
-                for source_id in sources:
-                    source = self.client.get_source(controller_id, source_id)
-                    if source:
-                        self.sources[source_id] = {
-                            "id": source_id,
-                            "name": source.name or f"Source {source_id}",
-                        }
-                        _LOG.info("Discovered source %s: %s", source_id, source.name)
-                        
-        except Exception as ex:
-            _LOG.error("Error discovering devices: %s", ex)
+        Returns:
+            UI volume level
+        """
+        return int(russound_vol * UI_VOL_MAX / RUSSOUND_VOL_MAX)
 
-    def _handle_state_update(self, controller_id, zone_id, updates):
-        """Handle state updates from controller."""
-        if zone_id in self.zones:
-            self.zones[zone_id].update(updates)
-            _LOG.debug("Zone %s updated: %s", zone_id, updates)
+    @staticmethod
+    def volume_to_russound(ui_vol: int) -> int:
+        """Convert UI volume (0-100) to Russound volume (0-50).
+        
+        Args:
+            ui_vol: UI volume level
             
-            # Notify callbacks
-            for callback in self.callbacks:
-                try:
-                    callback(zone_id, updates)
-                except Exception as ex:
-                    _LOG.error("Error in state update callback: %s", ex)
+        Returns:
+            Russound volume level
+        """
+        return int(ui_vol * RUSSOUND_VOL_MAX / UI_VOL_MAX)
 
-    def register_callback(self, callback):
-        """Register callback for state updates."""
-        if callback not in self.callbacks:
-            self.callbacks.append(callback)
-
-    def unregister_callback(self, callback):
-        """Unregister callback."""
-        if callback in self.callbacks:
-            self.callbacks.remove(callback)
-
-    async def zone_on(self, zone_id):
-        """Turn zone on."""
-        if not self.client or zone_id not in self.zones:
+    async def zone_on(self, zone_id: int) -> bool:
+        """Turn zone on.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
             return False
         
         try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_power(True)
-                return True
-        except Exception as ex:
-            _LOG.error("Error turning zone %s on: %s", zone_id, ex)
-        return False
+            await zone.zone_on()
+            return True
+        except Exception as e:
+            _LOG.error("Failed to turn on zone %s: %s", zone_id, e)
+            return False
 
-    async def zone_off(self, zone_id):
-        """Turn zone off."""
-        if not self.client or zone_id not in self.zones:
+    async def zone_off(self, zone_id: int) -> bool:
+        """Turn zone off.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
             return False
         
         try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_power(False)
-                return True
-        except Exception as ex:
-            _LOG.error("Error turning zone %s off: %s", zone_id, ex)
-        return False
+            await zone.zone_off()
+            return True
+        except Exception as e:
+            _LOG.error("Failed to turn off zone %s: %s", zone_id, e)
+            return False
 
-    async def set_volume(self, zone_id, volume):
-        """Set zone volume (0-50)."""
-        if not self.client or zone_id not in self.zones:
+    async def set_volume(self, zone_id: int, ui_volume: int) -> bool:
+        """Set zone volume.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            ui_volume: Volume level (0-100)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
+            return False
+        
+        russound_vol = self.volume_to_russound(ui_volume)
+        
+        try:
+            await zone.set_volume(russound_vol)
+            return True
+        except Exception as e:
+            _LOG.error("Failed to set volume for zone %s: %s", zone_id, e)
+            return False
+
+    async def volume_up(self, zone_id: int) -> bool:
+        """Increase zone volume.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
             return False
         
         try:
-            # Clamp volume
-            volume = max(MIN_VOLUME, min(MAX_VOLUME, volume))
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_volume(volume)
-                return True
-        except Exception as ex:
-            _LOG.error("Error setting zone %s volume: %s", zone_id, ex)
-        return False
-
-    async def volume_up(self, zone_id):
-        """Increase zone volume."""
-        if zone_id not in self.zones:
+            # Increase by 2 in UI terms (1 in Russound terms)
+            current_vol = self.volume_to_ui(zone.volume)
+            new_vol = min(current_vol + 2, UI_VOL_MAX)
+            await self.set_volume(zone_id, new_vol)
+            return True
+        except Exception as e:
+            _LOG.error("Failed to increase volume for zone %s: %s", zone_id, e)
             return False
-        
-        current_volume = self.zones[zone_id].get("volume", 0)
-        return await self.set_volume(zone_id, current_volume + 2)
 
-    async def volume_down(self, zone_id):
-        """Decrease zone volume."""
-        if zone_id not in self.zones:
-            return False
+    async def volume_down(self, zone_id: int) -> bool:
+        """Decrease zone volume.
         
-        current_volume = self.zones[zone_id].get("volume", 0)
-        return await self.set_volume(zone_id, current_volume - 2)
-
-    async def mute_toggle(self, zone_id):
-        """Toggle zone mute."""
-        if not self.client or zone_id not in self.zones:
+        Args:
+            zone_id: Zone ID (1-8)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
             return False
         
         try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                current_mute = self.zones[zone_id].get("mute", False)
-                await zone.set_mute(not current_mute)
-                return True
-        except Exception as ex:
-            _LOG.error("Error toggling zone %s mute: %s", zone_id, ex)
-        return False
+            # Decrease by 2 in UI terms (1 in Russound terms)
+            current_vol = self.volume_to_ui(zone.volume)
+            new_vol = max(current_vol - 2, 0)
+            await self.set_volume(zone_id, new_vol)
+            return True
+        except Exception as e:
+            _LOG.error("Failed to decrease volume for zone %s: %s", zone_id, e)
+            return False
 
-    async def select_source(self, zone_id, source_id):
-        """Select source for zone."""
-        if not self.client or zone_id not in self.zones:
+    async def mute_on(self, zone_id: int) -> bool:
+        """Mute zone.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
             return False
         
         try:
-            zone_info = self.zones[zone_id]
-            zone = self.client.get_zone(zone_info["controller_id"], zone_id)
-            if zone:
-                await zone.set_source(source_id)
-                return True
-        except Exception as ex:
-            _LOG.error("Error selecting source %s for zone %s: %s", source_id, zone_id, ex)
-        return False
+            # Send mute key press
+            # Note: aiorussound may not have direct mute method, use key event
+            await zone.send_key_press("Mute")
+            return True
+        except Exception as e:
+            _LOG.error("Failed to mute zone %s: %s", zone_id, e)
+            return False
 
-    def get_zone_state(self, zone_id):
-        """Get current zone state."""
-        return self.zones.get(zone_id)
-
-    def get_source_name(self, source_id):
-        """Get source name."""
-        if source_id in self.sources:
-            return self.sources[source_id]["name"]
-        return f"Source {source_id}"
+    async def select_source(self, zone_id: int, source_id: int) -> bool:
+        """Select source for zone.
+        
+        Args:
+            zone_id: Zone ID (1-8)
+            source_id: Source ID (1-8 for MCA-88)
+            
+        Returns:
+            True if successful
+        """
+        zone = self.get_zone(zone_id)
+        if not zone:
+            return False
+        
+        try:
+            await zone.select_source(source_id)
+            return True
+        except Exception as e:
+            _LOG.error("Failed to select source for zone %s: %s", zone_id, e)
+            return False
