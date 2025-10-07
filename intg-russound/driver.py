@@ -9,12 +9,13 @@ from typing import Any
 import ucapi
 from ucapi import media_player
 
-# Use absolute imports instead of relative
+# Absolute imports for PyInstaller compatibility
 import const
-import config as config_module
-import russound as russound_module
+from config import RussoundConfig
+from russound import RussoundController
 
 _LOG = logging.getLogger(__name__)
+
 
 class RussoundDriver:
     """Russound Integration Driver."""
@@ -145,7 +146,6 @@ class RussoundDriver:
         
         if await self.controller.connect():
             _LOG.info("Connected to Russound controller")
-            # Update entities with current state
             await self._update_all_entities()
         else:
             _LOG.error("Failed to connect to Russound controller")
@@ -171,9 +171,7 @@ class RussoundDriver:
         if not self.controller:
             return ucapi.StatusCodes.SERVER_ERROR
         
-        # Extract zone ID from entity identifier
         zone_id = int(entity.identifier.split("_")[1])
-        
         _LOG.info("Command %s for zone %s with params %s", cmd_id, zone_id, params)
         
         try:
@@ -189,7 +187,6 @@ class RussoundDriver:
                     await self.controller.zone_on(zone_id)
             elif cmd_id == media_player.Commands.VOLUME:
                 if params and "volume" in params:
-                    # Convert from 0-100 to 0-50
                     volume = int(params["volume"] * const.MAX_VOLUME / 100)
                     await self.controller.set_volume(zone_id, volume)
             elif cmd_id == media_player.Commands.VOLUME_UP:
@@ -201,7 +198,6 @@ class RussoundDriver:
             elif cmd_id == media_player.Commands.SELECT_SOURCE:
                 if params and "source" in params:
                     source_name = params["source"]
-                    # Find source ID by name
                     for src_id, src_data in self.controller.sources.items():
                         if src_data["name"] == source_name:
                             await self.controller.select_source(zone_id, src_id)
@@ -210,7 +206,6 @@ class RussoundDriver:
                 _LOG.warning("Unsupported command: %s", cmd_id)
                 return ucapi.StatusCodes.NOT_IMPLEMENTED
             
-            # Update entity state
             await self._update_entity(entity.identifier)
             return ucapi.StatusCodes.OK
             
@@ -235,7 +230,6 @@ class RussoundDriver:
         if not zone_state:
             return
         
-        # Update attributes
         attributes = {
             media_player.Attributes.STATE: self._get_zone_state(zone_id),
             media_player.Attributes.VOLUME: zone_state.get("volume", 0),
@@ -256,39 +250,26 @@ class RussoundDriver:
         """Run the integration driver."""
         _LOG.info("Starting Russound Integration Driver v%s", const.DRIVER_VERSION)
         
-        # Find driver.json
+        # Find driver.json - should be in same directory as executable when extracted
         if getattr(sys, 'frozen', False):
             # Running as PyInstaller bundle
-            driver_path = os.path.dirname(sys.executable)
-            driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
+            # The Remote extracts to a directory, driver.json is in parent of bin/
+            exe_dir = os.path.dirname(sys.executable)
+            driver_json = os.path.join(os.path.dirname(exe_dir), "driver.json")
         else:
             # Running as script
             driver_path = os.path.dirname(os.path.abspath(__file__))
             driver_json = os.path.join(os.path.dirname(driver_path), "driver.json")
         
-        _LOG.info("Driver path: %s", driver_path)
         _LOG.info("Looking for driver.json at: %s", driver_json)
-        
-        # Log environment variables
-        _LOG.info("Environment - UC_INTEGRATION_INTERFACE: %s", os.getenv("UC_INTEGRATION_INTERFACE", "not set"))
-        _LOG.info("Environment - UC_INTEGRATION_HTTP_PORT: %s", os.getenv("UC_INTEGRATION_HTTP_PORT", "not set"))
-        _LOG.info("Environment - UC_CONFIG_HOME: %s", os.getenv("UC_CONFIG_HOME", "not set"))
         
         if not os.path.exists(driver_json):
             _LOG.error("driver.json not found at %s", driver_json)
-            # List directory contents for debugging
-            parent_dir = os.path.dirname(driver_json)
-            _LOG.error("Contents of %s:", parent_dir)
-            try:
-                for item in os.listdir(parent_dir):
-                    _LOG.error("  - %s", item)
-            except Exception as e:
-                _LOG.error("Could not list directory: %s", e)
             sys.exit(1)
         
         try:
             self.api.init(driver_json)
-            _LOG.info("Integration API initialized successfully")
+            _LOG.info("Integration API initialized")
             self.api.loop.run_forever()
         except KeyboardInterrupt:
             _LOG.info("Shutting down...")
