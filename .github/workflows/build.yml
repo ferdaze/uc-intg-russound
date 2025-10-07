@@ -35,17 +35,14 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
             echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
             echo "FILENAME=uc-intg-russound-v$VERSION.tar.gz" >> $GITHUB_OUTPUT
-            echo "Building manual version: $VERSION"
           elif [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
             echo "FILENAME=uc-intg-russound-v$VERSION.tar.gz" >> $GITHUB_OUTPUT
-            echo "Building tagged version: $VERSION"
           else
             VERSION="dev-$(date +%Y%m%d-%H%M%S)"
             echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
             echo "FILENAME=uc-intg-russound-$VERSION.tar.gz" >> $GITHUB_OUTPUT
-            echo "Building dev version: $VERSION"
           fi
 
       - name: Build with PyInstaller
@@ -58,26 +55,32 @@ jobs:
             docker.io/unfoldedcircle/r2-pyinstaller:3.11.13-0.4.0 \
             bash -c "
               python -m pip install --no-cache-dir -r requirements.txt && \
-              pyinstaller --clean --onedir --name driver intg-russound/test_driver.py
+              pyinstaller --clean --onefile --name driver intg-russound/driver.py
             "
 
-      - name: Verify build output
+      - name: Prepare package structure
         run: |
-          echo "=== Checking dist/ contents ==="
-          ls -la dist/
-          echo "=== Checking driver/ contents ==="
-          ls -la dist/driver/
-
-      - name: Create bin directory
-        run: |
-          mkdir -p bin
-          cp -r dist/driver/* bin/
-          echo "=== bin/ contents ==="
-          ls -la bin/
+          echo "=== Creating package structure ==="
+          mkdir -p package/bin
+          
+          # Copy the single binary
+          cp dist/driver package/bin/
+          chmod +x package/bin/driver
+          
+          # Copy driver.json to package root
+          cp driver.json package/
+          
+          echo "=== Package contents ==="
+          ls -la package/
+          ls -la package/bin/
 
       - name: Create tarball
         run: |
-          tar -czf ${{ steps.get_version.outputs.FILENAME }} driver.json bin/
+          cd package
+          tar -czf ../${{ steps.get_version.outputs.FILENAME }} .
+          cd ..
+          echo "=== Tarball contents ==="
+          tar -tzf ${{ steps.get_version.outputs.FILENAME }}
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -90,11 +93,11 @@ jobs:
             Version: v${{ steps.get_version.outputs.VERSION }}
             
             ## Installation
-            1. Download the `${{ steps.get_version.outputs.FILENAME }}` file
-            2. Open your Remote R3 web configurator
-            3. Navigate to Integrations > Add Integration > Install Custom
+            1. Download `${{ steps.get_version.outputs.FILENAME }}`
+            2. Open Remote R3 web configurator
+            3. Go to Integrations > Add Integration > Install Custom
             4. Upload the .tar.gz file
-            5. Follow the setup wizard
+            5. Follow setup wizard
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
