@@ -1,5 +1,2 @@
-"""Russound RIO Integration for Unfolded Circle Remote."""
-from .driver import main
-
+"""Russound integration for Unfolded Circle Remote."""
 __version__ = "1.0.0"
-__all__ = ["main"]
