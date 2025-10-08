@@ -14,8 +14,12 @@ from russound import RussoundDevice
 
 _LOG = logging.getLogger(__name__)
 
+# Create event loop and API instance at module level (required for decorators)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+api: IntegrationAPI = IntegrationAPI(loop)
+
 # Global instances
-api: IntegrationAPI = IntegrationAPI()
 config_manager: RussoundConfig = None
 russound_device: RussoundDevice = None
 zones: dict = {}
@@ -311,7 +315,7 @@ async def on_setup_driver_user_data(
 
 async def main():
     """Main entry point."""
-    global config_manager
+    global config_manager, api
     
     logging.basicConfig(
         level=logging.DEBUG if os.getenv("UC_LOG_LEVEL") == "DEBUG" else logging.INFO,
@@ -319,6 +323,10 @@ async def main():
     )
     
     _LOG.info(f"Starting Russound integration v{DRIVER_VERSION}")
+    
+    # Initialize API with current event loop
+    loop = asyncio.get_event_loop()
+    api = IntegrationAPI(loop)
     
     # Initialize config
     config_dir = os.getenv("UC_CONFIG_HOME", ".")
