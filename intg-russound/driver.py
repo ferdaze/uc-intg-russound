@@ -208,8 +208,7 @@ async def create_entities() -> None:
         zones[entity.id] = zone_id
 
 
-@api.listens_to(ucapi.Events.ENTITY_COMMAND)
-async def on_entity_command(
+async def handle_entity_command(
     entity: MediaPlayer,
     cmd_id: str,
     params: dict[str, Any] | None
@@ -264,6 +263,10 @@ async def on_entity_command(
         return StatusCodes.SERVER_ERROR
 
 
+# Register command handler with API
+api.configured_entities.on(ucapi.EntityTypes.MEDIA_PLAYER, handle_entity_command)
+
+
 @api.listens_to(ucapi.Events.SETUP_DRIVER)
 async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """Handle driver setup."""
@@ -315,7 +318,7 @@ async def on_setup_driver_user_data(
 
 async def main():
     """Main entry point."""
-    global config_manager, api
+    global config_manager
     
     logging.basicConfig(
         level=logging.DEBUG if os.getenv("UC_LOG_LEVEL") == "DEBUG" else logging.INFO,
@@ -323,10 +326,6 @@ async def main():
     )
     
     _LOG.info(f"Starting Russound integration v{DRIVER_VERSION}")
-    
-    # Initialize API with current event loop
-    loop = asyncio.get_event_loop()
-    api = IntegrationAPI(loop)
     
     # Initialize config
     config_dir = os.getenv("UC_CONFIG_HOME", ".")
