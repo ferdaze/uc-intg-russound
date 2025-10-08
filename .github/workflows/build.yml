@@ -15,16 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
       
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
       
       - name: Get version
         id: version
@@ -35,9 +35,8 @@ jobs:
             VERSION="dev-$(date +%Y%m%d)-${GITHUB_SHA::7}"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
       
-      - name: Build with PyInstaller
+      - name: Build
         run: |
           docker run --rm --name builder \
             --platform=linux/arm64 \
@@ -50,30 +49,14 @@ jobs:
               pyinstaller --clean --onedir --name driver \
                 intg-russound/driver.py"
       
-      - name: Create package structure
+      - name: Create package
         run: |
           mkdir -p artifacts/bin
-          
-          # Move PyInstaller output to bin/driver
           mv dist/driver/* artifacts/bin/
-          
-          # Rename executable
-          if [ -f artifacts/bin/driver ]; then
-            echo "Driver executable found"
-          else
-            echo "Error: Driver executable not found"
-            exit 1
-          fi
-          
-          # Copy driver.json
           cp driver.json artifacts/
-          
-          # Create tar.gz
           cd artifacts
           tar czf ../uc-intg-russound-${{ steps.version.outputs.VERSION }}-aarch64.tar.gz .
           cd ..
-          
-          # Cleanup
           rm -rf dist build artifacts
       
       - name: Upload artifact
@@ -87,7 +70,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: uc-intg-russound-*.tar.gz
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
