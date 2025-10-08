@@ -1,4 +1,4 @@
-"""Russound Integration for Unfolded Circle Remote."""
+"""Russound MCA-88 Integration for Unfolded Circle Remote."""
 import asyncio
 import logging
 import os
@@ -107,6 +107,7 @@ def create_zone_entity(zone_id: int, zone_name: str = None) -> MediaPlayer:
         name={"en": name},
         features=features,
         attributes=attributes,
+        cmd_handler=handle_entity_command,
     )
     
     return entity
@@ -261,10 +262,6 @@ async def handle_entity_command(
     except Exception as e:
         _LOG.exception(f"Command failed: {e}")
         return StatusCodes.SERVER_ERROR
-
-
-# Register command handler with API
-api.configured_entities.on(ucapi.EntityTypes.MEDIA_PLAYER, handle_entity_command)
 
 
 @api.listens_to(ucapi.Events.SETUP_DRIVER)
