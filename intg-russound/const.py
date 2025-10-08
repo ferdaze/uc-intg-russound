@@ -1,7 +1,7 @@
 """Constants for the Russound integration."""
 
 # Integration metadata
-DRIVER_ID = "uc_russound_mca88"
+DRIVER_ID = "uc_russound_rio"
 DRIVER_VERSION = "1.0.0"
 
 # Default connection settings
