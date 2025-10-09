@@ -1,2 +1,2 @@
 ucapi>=0.3.2
-aiorussound>=3.0.0
+aiorussound>=4.8.2
