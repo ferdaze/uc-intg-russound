@@ -321,7 +321,24 @@ async def main():
     
     # Start API with setup handler
     await api.init("driver.json", setup_handler=on_setup_driver)
+    
+    # Keep running forever
+    _LOG.info("Integration driver running")
+    try:
+        while True:
+            await asyncio.sleep(3600)  # Sleep for 1 hour intervals
+    except KeyboardInterrupt:
+        _LOG.info("Shutting down")
+    finally:
+        if russound_device:
+            await russound_device.disconnect()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop.run_until_complete(main())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.close()
