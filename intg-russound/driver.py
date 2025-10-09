@@ -14,15 +14,15 @@ from russound import RussoundDevice
 
 _LOG = logging.getLogger(__name__)
 
-# Create event loop and API instance at module level (required for decorators)
+# Create event loop and API instance at module level
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-api: IntegrationAPI = IntegrationAPI(loop)
 
 # Global instances
 config_manager: RussoundConfig = None
 russound_device: RussoundDevice = None
 zones: dict = {}
+api: IntegrationAPI = None
 
 
 async def on_zone_update(zone_data: dict) -> None:
@@ -113,7 +113,6 @@ def create_zone_entity(zone_id: int, zone_name: str = None) -> MediaPlayer:
     return entity
 
 
-@api.listens_to(ucapi.Events.CONNECT)
 async def on_connect() -> None:
     """Handle Remote connection."""
     _LOG.info("Remote connected")
@@ -126,19 +125,16 @@ async def on_connect() -> None:
         _LOG.info("Not configured yet, waiting for setup")
 
 
-@api.listens_to(ucapi.Events.DISCONNECT)
 async def on_disconnect() -> None:
     """Handle Remote disconnection."""
     _LOG.info("Remote disconnected")
 
 
-@api.listens_to(ucapi.Events.ENTER_STANDBY)
 async def on_standby() -> None:
     """Handle Remote standby."""
     _LOG.info("Remote entering standby")
 
 
-@api.listens_to(ucapi.Events.EXIT_STANDBY)
 async def on_exit_standby() -> None:
     """Handle Remote wake."""
     _LOG.info("Remote exiting standby")
@@ -147,7 +143,6 @@ async def on_exit_standby() -> None:
         await russound_device.start_reconnect()
 
 
-@api.listens_to(ucapi.Events.SUBSCRIBE_ENTITIES)
 async def on_subscribe_entities(entity_ids: list[str]) -> None:
     """Handle entity subscription."""
     _LOG.info(f"Subscribed to: {entity_ids}")
@@ -161,7 +156,6 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
                 await on_zone_update(zone_state)
 
 
-@api.listens_to(ucapi.Events.UNSUBSCRIBE_ENTITIES)
 async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
     """Handle entity unsubscription."""
     _LOG.info(f"Unsubscribed from: {entity_ids}")
@@ -321,7 +315,7 @@ async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
 
 async def main():
     """Main entry point."""
-    global config_manager
+    global config_manager, api
     
     logging.basicConfig(
         level=logging.DEBUG if os.getenv("UC_LOG_LEVEL") == "DEBUG" else logging.INFO,
@@ -329,6 +323,17 @@ async def main():
     )
     
     _LOG.info(f"Starting Russound integration v{DRIVER_VERSION}")
+    
+    # Create API instance
+    api = IntegrationAPI(loop)
+    
+    # Register event handlers
+    api.events.on("connect", on_connect)
+    api.events.on("disconnect", on_disconnect)
+    api.events.on("enter_standby", on_standby)
+    api.events.on("exit_standby", on_exit_standby)
+    api.events.on("subscribe_entities", on_subscribe_entities)
+    api.events.on("unsubscribe_entities", on_unsubscribe_entities)
     
     # Initialize config
     config_dir = os.getenv("UC_CONFIG_HOME", ".")
