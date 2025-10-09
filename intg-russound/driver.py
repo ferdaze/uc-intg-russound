@@ -1,4 +1,4 @@
-"""Russound MCA-88 Integration for Unfolded Circle Remote."""
+"""Russound Integration for Unfolded Circle Remote."""
 import asyncio
 import logging
 import os
@@ -264,7 +264,6 @@ async def handle_entity_command(
         return StatusCodes.SERVER_ERROR
 
 
-@api.listens_to(ucapi.Events.SETUP_DRIVER)
 async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """Handle driver setup."""
     _LOG.info("Setup requested")
@@ -305,14 +304,6 @@ async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         return ucapi.SetupError(error_type=ucapi.IntegrationSetupError.OTHER)
 
 
-@api.listens_to(ucapi.Events.SETUP_DRIVER_USER_DATA)
-async def on_setup_driver_user_data(
-    msg: ucapi.SetupDriverUserData
-) -> ucapi.SetupAction:
-    """Handle setup user data."""
-    return await on_setup_driver(msg)
-
-
 async def main():
     """Main entry point."""
     global config_manager
@@ -328,8 +319,8 @@ async def main():
     config_dir = os.getenv("UC_CONFIG_HOME", ".")
     config_manager = RussoundConfig(config_dir)
     
-    # Start API
-    await api.init("driver.json")
+    # Start API with setup handler
+    await api.init("driver.json", setup_handler=on_setup_driver)
 
 
 if __name__ == "__main__":
