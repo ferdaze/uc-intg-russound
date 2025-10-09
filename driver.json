@@ -1,6 +1,6 @@
 {
-  "driver_id": "uc_russound_mca88",
-  "version": "1.0.0",
+  "driver_id": "uc_russound_rio",
+  "version": "1.0.17",
   "min_core_api": "0.21.0",
   "name": {
     "en": "Russound Multi-Zone Audio",
