@@ -1,4 +1,4 @@
-"""Russound Integration for Unfolded Circle Remote."""
+"""Russound MCA-88 Integration for Unfolded Circle Remote."""
 import asyncio
 import logging
 import os
@@ -338,13 +338,19 @@ async def main():
     await api.init("driver.json", setup_handler=on_setup_driver)
     
     _LOG.info("Integration driver initialized and ready")
+    
+    # Wait forever - the ucapi library manages the event loop
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
     try:
         loop.run_until_complete(main())
-        loop.run_forever()
     except KeyboardInterrupt:
-        pass
+        _LOG.info("Keyboard interrupt received")
+    except Exception as e:
+        _LOG.exception(f"Fatal error: {e}")
     finally:
+        if russound_device:
+            loop.run_until_complete(russound_device.disconnect())
         loop.close()
