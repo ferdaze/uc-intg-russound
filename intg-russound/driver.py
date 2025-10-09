@@ -118,8 +118,12 @@ async def on_connect() -> None:
     """Handle Remote connection."""
     _LOG.info("Remote connected")
     
+    # Only auto-connect if already configured
     if config_manager and config_manager.is_configured:
+        _LOG.info("Configuration found, connecting to Russound")
         await connect_russound()
+    else:
+        _LOG.info("Not configured yet, waiting for setup")
 
 
 @api.listens_to(ucapi.Events.DISCONNECT)
@@ -266,9 +270,13 @@ async def handle_entity_command(
 
 async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
     """Handle driver setup."""
-    _LOG.info("Setup requested")
+    _LOG.info(f"Setup requested, reconfigure={msg.reconfigure}")
     
     setup_data = msg.setup_data or {}
+    
+    # If reconfiguring, we might want different behavior
+    if msg.reconfigure:
+        _LOG.info("Reconfiguring existing setup")
     
     # Validate
     is_valid, error = config_manager.validate(setup_data)
@@ -277,6 +285,8 @@ async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         return ucapi.SetupError(error_type=ucapi.IntegrationSetupError.OTHER)
     
     # Test connection
+    _LOG.info(f"Testing connection to {setup_data.get('host')}:{setup_data.get('port', 9621)}")
+    
     try:
         test_device = RussoundDevice(
             host=setup_data["host"],
@@ -285,18 +295,23 @@ async def on_setup_driver(msg: ucapi.SetupDriver) -> ucapi.SetupAction:
         )
         
         if not await test_device.connect():
+            _LOG.error("Failed to connect to Russound device")
             return ucapi.SetupError(
                 error_type=ucapi.IntegrationSetupError.CONNECTION_REFUSED
             )
         
+        _LOG.info("Test connection successful")
         await test_device.disconnect()
         
         # Save config
+        _LOG.info("Saving configuration")
         config_manager.save(setup_data)
         
         # Connect
+        _LOG.info("Starting Russound connection")
         await connect_russound()
         
+        _LOG.info("Setup completed successfully")
         return ucapi.SetupComplete()
         
     except Exception as e:
@@ -322,16 +337,7 @@ async def main():
     # Start API with setup handler
     await api.init("driver.json", setup_handler=on_setup_driver)
     
-    # Keep running forever
-    _LOG.info("Integration driver running")
-    try:
-        while True:
-            await asyncio.sleep(3600)  # Sleep for 1 hour intervals
-    except KeyboardInterrupt:
-        _LOG.info("Shutting down")
-    finally:
-        if russound_device:
-            await russound_device.disconnect()
+    _LOG.info("Integration driver initialized and ready")
 
 
 if __name__ == "__main__":
