@@ -1,4 +1,4 @@
-"""Russound MCA-88 Integration for Unfolded Circle Remote."""
+"""Russound Integration for Unfolded Circle Remote."""
 import asyncio
 import logging
 import os
