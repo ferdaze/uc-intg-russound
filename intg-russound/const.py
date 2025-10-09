@@ -2,7 +2,7 @@
 
 # Integration metadata
 DRIVER_ID = "uc_russound_rio"
-DRIVER_VERSION = "1.0.17"
+DRIVER_VERSION = "1.0.21"
 
 # Default connection settings
 DEFAULT_PORT = 9621
