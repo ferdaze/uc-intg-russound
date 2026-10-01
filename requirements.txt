@@ -1,0 +1,7 @@
+# Core dependencies
+ucapi==0.7.0
+ucapi-framework==1.9.7
+# pyee 14+ requires Python 3.12; the Remote's PyInstaller builder uses Python 3.11
+pyee>=9.0,<14
+
+# The Russound RIO protocol client is implemented in intg-russound/rio.py (no extra dependency).

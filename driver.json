@@ -1,0 +1,37 @@
+{
+  "driver_id": "russound",
+  "version": "0.1.0",
+  "min_core_api": "0.20.0",
+  "name": { "en": "Russound" },
+  "icon": "uc:integration",
+  "description": {
+    "en": "Control Russound MCA-88 multi-zone audio controllers (and other RIO capable Russound controllers) over the network."
+  },
+  "developer": {
+    "name": "ferdaze",
+    "url": "https://github.com/ferdaze"
+  },
+  "home_page": "https://github.com/ferdaze/uc-intg-russound",
+  "support": "https://github.com/ferdaze/uc-intg-russound/issues",
+  "setup_data_schema": {
+    "title": {
+      "en": "Integration setup"
+    },
+    "settings": [
+      {
+        "id": "info",
+        "label": {
+          "en": "Setup process"
+        },
+        "field": {
+          "label": {
+            "value": {
+              "en": "This integration controls a Russound MCA-88 over the RIO protocol (TCP port 9621). Each zone becomes a media player entity with power, volume, mute, source selection and tone controls. Make sure the controller has a static or reserved IP address."
+            }
+          }
+        }
+      }
+    ]
+  },
+  "release_date": "2026-09-30"
+}
