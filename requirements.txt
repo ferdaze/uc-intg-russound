@@ -1,0 +1,9 @@
+# Core Unfolded Circle integration API + JackJPowell's integration framework.
+# ucapi-framework 1.9.7 requires ucapi >= 0.7.0 - do not downgrade ucapi on its own.
+ucapi==0.7.0
+ucapi-framework==1.9.7
+# pyee 14+ requires Python 3.12; the Remote's PyInstaller builder uses Python 3.11
+pyee>=9.0,<14
+
+# Russound RIO client (also pulls in mashumaro, orjson and serialx)
+aiorussound==5.0.2

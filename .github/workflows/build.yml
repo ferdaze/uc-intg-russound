@@ -1,0 +1,184 @@
+# Builds an aarch64 PyInstaller bundle and publishes it as a GitHub release.
+#
+# Trigger: push a tag like v0.1.0, or run manually from the Actions tab.
+#
+# Note on Docker: the driver itself does NOT ship as a container. Docker is
+# only used here to run Unfolded Circle's aarch64 build image, because
+# PyInstaller cannot cross-compile. The published artifact is a plain tar.gz
+# that runs natively on the Remote.
+name: "Build & Release"
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.1.0, without the v prefix)"
+        required: true
+        type: string
+
+env:
+  # Source folder name: intg-<INTG_NAME>
+  INTG_NAME: russound
+  # Unfolded Circle's aarch64 PyInstaller builder image.
+  # See https://hub.docker.com/r/unfoldedcircle/r2-pyinstaller for tags.
+  PYTHON_VER: 3.11.13-0.7.0
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r test-requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests -v
+
+  build:
+    name: Build Release
+    runs-on: ubuntu-24.04
+    needs: [test]
+    outputs:
+      version: ${{ steps.get-version-and-id.outputs.VERSION }}
+      driver_id: ${{ steps.get-version-and-id.outputs.DRIVER_ID }}
+      release_notes: ${{ steps.changelog.outputs.NOTES }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 200
+
+      - name: Get version and driver id
+        id: get-version-and-id
+        run: |
+          # Tag pushes use the tag; manual runs use the version input.
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          DRIVER_ID=$(jq .driver_id -r driver.json)
+          MANIFEST_VERSION=$(jq .version -r driver.json)
+
+          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Version mismatch: tag says '$VERSION' but driver.json says '$MANIFEST_VERSION'."
+            echo "::error::Bump the version in driver.json before tagging."
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "DRIVER_ID=$DRIVER_ID" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "DRIVER_ID=$DRIVER_ID" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog notes
+        id: changelog
+        run: |
+          NOTES=$(awk "/^## v${VERSION}/{ found=1; next } found && /^## /{ exit } found{ print }" CHANGELOG.md \
+            | sed '/^[[:space:]]*$/d' | sed '/^---$/d')
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
+          EOF=$(openssl rand -hex 8)
+          echo "NOTES<<$EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Build aarch64 bundle
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-system-arm binfmt-support qemu-user-static
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          echo "Starting pyinstaller build for ${DRIVER_ID} v${VERSION}"
+          docker run --rm --name builder \
+            --platform=aarch64 \
+            --user=$(id -u):$(id -g) \
+            -v ${GITHUB_WORKSPACE}:/workspace \
+            docker.io/unfoldedcircle/r2-pyinstaller:${PYTHON_VER} \
+            bash -c \
+            "cd /workspace && \
+              python -m pip install -r requirements.txt && \
+              pyinstaller --clean --onedir --name intg-${DRIVER_ID} \
+                --collect-all zeroconf \
+                --collect-all ucapi \
+                --collect-all ucapi_framework \
+                intg-${INTG_NAME}/driver.py"
+
+      - name: Assemble installation archive
+        shell: bash
+        run: |
+          # Archive layout required by the Remote:
+          #   ./driver.json   metadata
+          #   ./bin/driver    the aarch64 executable (+ its _internal folder)
+          mkdir -p artifacts/bin
+          mv dist/intg-${DRIVER_ID}/* artifacts/bin
+          mv artifacts/bin/intg-${DRIVER_ID} artifacts/bin/driver
+          cp driver.json artifacts/
+          echo "ARTIFACT_NAME=uc-intg-${DRIVER_ID}-${VERSION}-aarch64" >> $GITHUB_ENV
+
+      - name: Create tar.gz
+        shell: bash
+        run: |
+          tar czvf ${ARTIFACT_NAME}.tar.gz -C ${GITHUB_WORKSPACE}/artifacts . > /dev/null
+          ls -lah ${ARTIFACT_NAME}.tar.gz
+          # The Remote rejects archives over 100 MB.
+          SIZE=$(stat -c%s "${ARTIFACT_NAME}.tar.gz")
+          if [ "$SIZE" -gt 104857600 ]; then
+            echo "::error::Archive is ${SIZE} bytes, over the Remote's 100 MB limit."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        id: upload_artifact
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_NAME }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-24.04
+    needs: [build]
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+
+      - name: Flatten downloaded artifacts
+        run: |
+          for D in *; do
+            if [ -d "${D}" ]; then mv $D/* ./; fi
+          done
+
+      - name: Create hash file
+        run: |
+          for filename in *.tar.gz; do
+            sha256sum "$filename" >> ${{ needs.build.outputs.driver_id }}.hash
+          done
+          cat ${{ needs.build.outputs.driver_id }}.hash
+
+      - name: Create release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.tar.gz,${{ needs.build.outputs.driver_id }}.hash"
+          draft: false
+          prerelease: false
+          generateReleaseNotes: false
+          body: ${{ needs.build.outputs.release_notes }}
+          artifactErrorsFailBuild: true
+          tag: v${{ needs.build.outputs.version }}

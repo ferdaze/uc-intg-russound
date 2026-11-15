@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# PyInstaller
+build/
+dist/
+artifacts/
+*.spec
+*.tar.gz
+
+# Local runtime config written by the driver
+config/
+data/
+*.json.bak
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
