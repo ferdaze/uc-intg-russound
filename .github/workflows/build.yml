@@ -181,4 +181,8 @@ jobs:
           generateReleaseNotes: false
           body: ${{ needs.build.outputs.release_notes }}
           artifactErrorsFailBuild: true
+          # A release created in the GitHub UI creates the tag first; update it
+          # with the built archive instead of failing on "already exists".
+          allowUpdates: true
+          omitBodyDuringUpdate: false
           tag: v${{ needs.build.outputs.version }}
