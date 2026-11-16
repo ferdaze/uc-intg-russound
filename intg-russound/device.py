@@ -2,9 +2,15 @@
 Russound RIO device communication.
 
 Wraps :mod:`aiorussound` and exposes one cached ``MediaPlayerAttributes``
-object per zone. The library owns the socket and its own exponential-backoff
-reconnect loop, so the framework watchdog is disabled here to avoid two
-competing reconnect loops fighting over the same client.
+object per zone.
+
+Reconnection is owned by this module. aiorussound has its own reconnect loop,
+but it only re-opens the socket: RIO ``WATCH`` subscriptions are per
+connection and are not re-issued, and the library reports nothing when the
+new session is up. So when a session ends, the library's loop is stopped and
+a fresh client is built here, exactly as on first connect, retrying with
+backoff until the controller answers or ``disconnect()`` is called. The
+framework watchdog stays disabled so only one thing ever reconnects.
 
 :copyright: (c) 2026 by Jeff Ferdinandsen.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
@@ -20,6 +26,8 @@ from aiorussound.rio import RussoundRIOClient
 from aiorussound.rio.client import ZoneControlSurface
 from aiorussound.rio.models import CallbackType, PartyMode, PlayStatus, Source
 from const import (
+    RECONNECT_MAX_DELAY,
+    RECONNECT_MIN_DELAY,
     TONE_MAX,
     TONE_MIN,
     TONE_STEP,
@@ -56,15 +64,15 @@ class RussoundDevice(ExternalClientDevice):
         super().__init__(
             device_config,
             loop,
-            # aiorussound reconnects on its own; a second watchdog would tear
-            # down a client that is mid-backoff and leak a parallel loop.
+            # Reconnection is handled by _retry_loop(); see the module docstring.
             enable_watchdog=False,
             config_manager=config_manager,
             driver=driver,
         )
         self._zone_attributes: dict[str, MediaPlayerAttributes] = {}
         self._zone_names: dict[str, str] = dict(device_config.zone_names or {})
-        self._metadata_task: asyncio.Task | None = None
+        self._session_lock = asyncio.Lock()
+        self._retry_task: asyncio.Task | None = None
 
     # =========================================================================
     # Properties
@@ -157,20 +165,32 @@ class RussoundDevice(ExternalClientDevice):
 
     async def connect(self) -> bool:
         """
-        Connect, reusing the existing client if the library already owns one.
+        Open the RIO session.
 
-        :return: True when the RIO session is up
+        If the controller cannot be reached, a background retry keeps trying
+        until it answers or ``disconnect()`` is called.
+
+        :return: True when the session is up, False if it is still being retried
         """
-        if self._client is not None:
-            if self.check_client_connected():
-                self._is_connected = True
-                self.events.emit(DeviceEvents.CONNECTED, self.identifier)
-                return True
-            # A reconnect is already in flight inside aiorussound. Creating a
-            # second client here would orphan the first one.
-            _LOG.debug("[%s] Reconnect already in progress", self.log_id)
+        if self.is_connected:
+            return True
+        if self._retrying():
+            _LOG.debug("[%s] Already retrying in the background", self.log_id)
             return False
-        return await super().connect()
+
+        self.events.emit(DeviceEvents.CONNECTING, self.identifier)
+        if await self._open_session():
+            return True
+
+        self.events.emit(DeviceEvents.ERROR, self.identifier, "Controller not reachable")
+        self._start_retry()
+        return False
+
+    async def disconnect(self) -> None:
+        """Close the RIO session and stop any background retry."""
+        await self._stop_retry()
+        async with self._session_lock:
+            await super().disconnect()
 
     async def create_client(self) -> RussoundRIOClient:
         """Create the RIO client. Must run inside the event loop."""
@@ -191,10 +211,6 @@ class RussoundDevice(ExternalClientDevice):
         if client is None:
             return
 
-        if self._metadata_task and not self._metadata_task.done():
-            self._metadata_task.cancel()
-        self._metadata_task = None
-
         client.unregister_state_update_callbacks(self._on_client_update)
         await client.disconnect()
 
@@ -202,16 +218,133 @@ class RussoundDevice(ExternalClientDevice):
         # connected. If we disconnect mid-backoff the reconnect loop survives,
         # so cancel it explicitly.
         reconnect_task = getattr(client, "_reconnect_task", None)
-        if reconnect_task is not None and not reconnect_task.done():
+        if (
+            reconnect_task is not None
+            and not reconnect_task.done()
+            and reconnect_task is not asyncio.current_task()
+        ):
             reconnect_task.cancel()
             try:
                 await reconnect_task
             except (asyncio.CancelledError, Exception):  # pylint: disable=broad-except
                 pass
 
+        # aiorussound never closes its socket. Left open, every reconnect
+        # would leave another dead session behind on the controller.
+        writer = client.connection_handler.writer
+        if writer is not None:
+            client.connection_handler.writer = None
+            writer.close()
+            try:
+                async with asyncio.timeout(2):
+                    await writer.wait_closed()
+            except (OSError, TimeoutError):
+                pass
+
     def check_client_connected(self) -> bool:
         """Return True while the RIO session is established."""
         return self._client is not None and self._client.is_connected()
+
+    def report_unresponsive(self) -> None:
+        """
+        Restart the session after the controller failed to answer a command.
+
+        aiorussound matches replies to requests by order, so one lost reply
+        leaves every later reply paired with the wrong request. A fresh
+        session is the only safe way out.
+        """
+        self._handle_session_lost("controller stopped answering")
+
+    async def _open_session(self) -> bool:
+        """
+        Build a fresh client, connect it and subscribe to all zones and sources.
+
+        :return: True if the session is up
+        """
+        async with self._session_lock:
+            if self.is_connected:
+                return True
+
+            await self._cleanup_client()
+            error: str | None = None
+            try:
+                self._client = await self.create_client()
+                await self.connect_client()
+                if not self.check_client_connected():
+                    error = "connection lost while loading zones"
+            except asyncio.CancelledError:
+                # aiorussound cancels its pending requests when the socket
+                # drops, which surfaces here as CancelledError even though
+                # nobody cancelled this task. Only pass on a real cancellation.
+                if _cancel_requested():
+                    raise
+                error = "connection lost while loading zones"
+            except Exception as err:  # pylint: disable=broad-except
+                error = str(err) or type(err).__name__
+
+            if error is not None:
+                _LOG.warning(
+                    "[%s] Could not connect to %s:%s - %s",
+                    self.log_id,
+                    self._device_config.address,
+                    self._device_config.port,
+                    error,
+                )
+                await self._cleanup_client()
+                self._is_connected = False
+                return False
+
+            self._is_connected = True
+
+        _LOG.info("[%s] Connected", self.log_id)
+        self.events.emit(DeviceEvents.CONNECTED, self.identifier)
+        self.push_update()
+        return True
+
+    def _handle_session_lost(self, reason: str) -> None:
+        """Mark the session as down and start reconnecting in the background."""
+        client: RussoundRIOClient | None = self._client
+        if client is not None:
+            # Stop aiorussound's own reconnect loop; see the module docstring.
+            client._attempt_reconnection = False  # pylint: disable=protected-access
+
+        if self._is_connected:
+            _LOG.warning("[%s] Disconnected: %s", self.log_id, reason)
+            self._is_connected = False
+            self.events.emit(DeviceEvents.DISCONNECTED, self.identifier)
+
+        self._start_retry()
+
+    def _retrying(self) -> bool:
+        """Return True while the background retry is running."""
+        return self._retry_task is not None and not self._retry_task.done()
+
+    def _start_retry(self) -> None:
+        """Start the background retry unless it is already running."""
+        if not self._retrying():
+            self._retry_task = asyncio.create_task(self._retry_loop())
+
+    async def _stop_retry(self) -> None:
+        """Cancel the background retry and wait for it to finish."""
+        task, self._retry_task = self._retry_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def _retry_loop(self) -> None:
+        """Reconnect with exponential backoff until the session is up."""
+        delay = RECONNECT_MIN_DELAY
+        attempt = 0
+        while True:
+            await asyncio.sleep(delay)
+            attempt += 1
+            _LOG.info("[%s] Reconnect attempt %d", self.log_id, attempt)
+            if await self._open_session():
+                return
+            delay = min(delay * 2, RECONNECT_MAX_DELAY)
 
     async def _load_metadata(self) -> None:
         """Fetch zone/source metadata and start RIO WATCH subscriptions."""
@@ -226,40 +359,26 @@ class RussoundDevice(ExternalClientDevice):
         )
 
     async def _on_client_update(
-        self, _client: RussoundRIOClient, callback_type: CallbackType
+        self, client: RussoundRIOClient, callback_type: CallbackType
     ) -> None:
         """
         Handle a state or connection callback from aiorussound.
 
-        :param _client: the emitting client (unused, we hold the reference)
-        :param callback_type: STATE for value changes, CONNECTION for socket events
+        :param client: the emitting client
+        :param callback_type: STATE for value changes, CONNECTION when a session ends
         """
+        if client is not self._client:
+            return
+
         if callback_type == CallbackType.CONNECTION:
-            if self.check_client_connected():
-                # RIO WATCH subscriptions do not survive a TCP reconnect, so
-                # reload them. Scheduled as a task because this callback is
-                # awaited from inside the library's own reconnect loop.
-                self._is_connected = True
-                if self._metadata_task is None or self._metadata_task.done():
-                    self._metadata_task = asyncio.create_task(self._resubscribe())
-                self.events.emit(DeviceEvents.CONNECTED, self.identifier)
-            else:
-                self._is_connected = False
-                self.events.emit(DeviceEvents.DISCONNECTED, self.identifier)
+            # aiorussound only raises this after a session has ended. It is
+            # awaited from inside the library's reconnect loop, so the actual
+            # reconnect is handed to a separate task.
+            self._handle_session_lost("connection to the controller was lost")
             return
 
         self._refresh_attributes()
         self.push_update()
-
-    async def _resubscribe(self) -> None:
-        """Reload metadata after a reconnect, then push fresh state."""
-        try:
-            await self._load_metadata()
-            self.push_update()
-        except asyncio.CancelledError:
-            raise
-        except Exception as err:  # pylint: disable=broad-except
-            _LOG.error("[%s] Failed to reload metadata: %s", self.log_id, err)
 
     # =========================================================================
     # State mapping
@@ -489,3 +608,9 @@ class RussoundDevice(ExternalClientDevice):
 def _step(current: int | None, delta: int) -> int:
     """Clamp a tone adjustment to the RIO -10..10 range."""
     return max(TONE_MIN, min(TONE_MAX, (current or 0) + delta))
+
+
+def _cancel_requested() -> bool:
+    """Return True if the current task is really being cancelled."""
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0

@@ -1,6 +1,6 @@
 {
   "driver_id": "russound",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "min_core_api": "0.20.0",
   "name": {
     "en": "Russound RIO"
@@ -34,5 +34,5 @@
       }
     ]
   },
-  "release_date": "2026-11-14"
+  "release_date": "2026-11-15"
 }

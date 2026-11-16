@@ -21,6 +21,25 @@ from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config
 _LOG = logging.getLogger("driver")
 
 
+def create_driver(
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> BaseIntegrationDriver:
+    """
+    Build the integration driver.
+
+    Entities are created from the zone names stored at setup time, so they
+    exist as soon as the driver starts, whether or not the controller can be
+    reached at that moment. The device then connects in the background and
+    keeps retrying until the controller answers.
+    """
+    return BaseIntegrationDriver(
+        device_class=RussoundDevice,
+        entity_classes=[create_zone_entities],
+        loop=loop,
+        driver_id="russound",
+    )
+
+
 async def main() -> None:
     """Start the integration driver and run until the Remote stops it."""
     logging.basicConfig(
@@ -35,14 +54,7 @@ async def main() -> None:
         level if level != "DEBUG" else os.getenv("UC_RIO_LOG_LEVEL", "INFO").upper()
     )
 
-    driver = BaseIntegrationDriver(
-        device_class=RussoundDevice,
-        # Zones are only known once the controller answers, so entities are
-        # produced by a factory rather than a fixed class list.
-        entity_classes=[create_zone_entities],
-        require_connection_before_registry=True,
-        driver_id="russound",
-    )
+    driver = create_driver()
 
     driver.config_manager = BaseConfigManager(
         get_config_path(driver.api.config_dir_path),

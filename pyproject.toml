@@ -1,6 +1,6 @@
 [project]
 name = "uc-intg-russound"
-version = "0.1.0"
+version = "0.1.1"
 description = "Unfolded Circle Remote integration for Russound MCA-88 and other RIO multi-zone controllers"
 readme = "README.md"
 requires-python = ">=3.11"

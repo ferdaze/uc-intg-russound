@@ -5,11 +5,12 @@ Media-player entity: one per Russound zone.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
 """
 
+import asyncio
 import logging
 from typing import Any
 
 import ucapi
-from const import VOLUME_STEPS, DeviceConfig, SimpleCommands
+from const import COMMAND_TIMEOUT, VOLUME_STEPS, DeviceConfig, SimpleCommands
 from device import RussoundDevice
 from ucapi import EntityTypes, media_player
 from ucapi.media_player import Attributes, DeviceClasses
@@ -121,47 +122,60 @@ class RussoundZoneMediaPlayer(MediaPlayerEntity):
         zone = self._sub_id
 
         try:
-            match cmd_id:
-                case media_player.Commands.ON:
-                    await self._device.zone_on(zone)
-                case media_player.Commands.OFF:
-                    await self._device.zone_off(zone)
-                case media_player.Commands.TOGGLE:
-                    await self._device.zone_toggle(zone)
-                case media_player.Commands.VOLUME:
-                    await self._device.set_volume(zone, (params or {}).get("volume"))
-                case media_player.Commands.VOLUME_UP:
-                    await self._device.volume_up(zone)
-                case media_player.Commands.VOLUME_DOWN:
-                    await self._device.volume_down(zone)
-                case media_player.Commands.MUTE:
-                    await self._device.mute(zone)
-                case media_player.Commands.UNMUTE:
-                    await self._device.unmute(zone)
-                case media_player.Commands.MUTE_TOGGLE:
-                    await self._device.mute_toggle(zone)
-                case media_player.Commands.PLAY_PAUSE:
-                    await self._device.play_pause(zone)
-                case media_player.Commands.STOP:
-                    await self._device.transport(zone, "stop")
-                case media_player.Commands.NEXT:
-                    await self._device.transport(zone, "next")
-                case media_player.Commands.PREVIOUS:
-                    await self._device.transport(zone, "previous")
-                case media_player.Commands.SEEK:
-                    await self._device.seek(zone, (params or {}).get("media_position", 0))
-                case media_player.Commands.SELECT_SOURCE:
-                    source = (params or {}).get("source")
-                    if not await self._device.select_source(zone, source):
-                        return ucapi.StatusCodes.BAD_REQUEST
-                case _:
-                    if await self._device.simple_command(zone, cmd_id):
-                        return ucapi.StatusCodes.OK
-                    _LOG.warning("Unhandled command: %s", cmd_id)
-                    return ucapi.StatusCodes.NOT_IMPLEMENTED
+            async with asyncio.timeout(COMMAND_TIMEOUT):
+                match cmd_id:
+                    case media_player.Commands.ON:
+                        await self._device.zone_on(zone)
+                    case media_player.Commands.OFF:
+                        await self._device.zone_off(zone)
+                    case media_player.Commands.TOGGLE:
+                        await self._device.zone_toggle(zone)
+                    case media_player.Commands.VOLUME:
+                        await self._device.set_volume(zone, (params or {}).get("volume"))
+                    case media_player.Commands.VOLUME_UP:
+                        await self._device.volume_up(zone)
+                    case media_player.Commands.VOLUME_DOWN:
+                        await self._device.volume_down(zone)
+                    case media_player.Commands.MUTE:
+                        await self._device.mute(zone)
+                    case media_player.Commands.UNMUTE:
+                        await self._device.unmute(zone)
+                    case media_player.Commands.MUTE_TOGGLE:
+                        await self._device.mute_toggle(zone)
+                    case media_player.Commands.PLAY_PAUSE:
+                        await self._device.play_pause(zone)
+                    case media_player.Commands.STOP:
+                        await self._device.transport(zone, "stop")
+                    case media_player.Commands.NEXT:
+                        await self._device.transport(zone, "next")
+                    case media_player.Commands.PREVIOUS:
+                        await self._device.transport(zone, "previous")
+                    case media_player.Commands.SEEK:
+                        await self._device.seek(zone, (params or {}).get("media_position", 0))
+                    case media_player.Commands.SELECT_SOURCE:
+                        source = (params or {}).get("source")
+                        if not await self._device.select_source(zone, source):
+                            return ucapi.StatusCodes.BAD_REQUEST
+                    case _:
+                        if await self._device.simple_command(zone, cmd_id):
+                            return ucapi.StatusCodes.OK
+                        _LOG.warning("Unhandled command: %s", cmd_id)
+                        return ucapi.StatusCodes.NOT_IMPLEMENTED
 
-            return ucapi.StatusCodes.OK
+                return ucapi.StatusCodes.OK
 
+        except TimeoutError:
+            _LOG.error("[%s] no answer to %s, restarting the connection", zone, cmd_id)
+            self._device.report_unresponsive()
+            return ucapi.StatusCodes.TIMEOUT
+        except asyncio.CancelledError:
+            # The connection dropped while the command was waiting for its
+            # reply. Only pass on a cancellation aimed at this task itself.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
+            _LOG.warning("[%s] connection lost during %s", zone, cmd_id)
+            return ucapi.StatusCodes.SERVICE_UNAVAILABLE
         except (OSError, RuntimeError, ValueError) as err:
             _LOG.error("[%s] command %s failed: %s", zone, cmd_id, err)
             return ucapi.StatusCodes.BAD_REQUEST

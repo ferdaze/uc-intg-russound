@@ -26,6 +26,12 @@ EVENT_RE = re.compile(r"^EVENT (?P<branch>[^!]+)!(?P<event>\w+)\s*(?P<args>.*)$"
 WATCH_RE = re.compile(r"^WATCH (?P<branch>.+) (?P<state>ON|OFF)$")
 
 
+def _is_watched(notification: str, watched: set[str]) -> bool:
+    """Return True if a ``N <branch>.<leaf>="value"`` line belongs to a watched branch."""
+    key = notification[2:].split("=", 1)[0]
+    return key.rsplit(".", 1)[0] in watched
+
+
 class MockRioServer:
     """Serves the RIO protocol over TCP on localhost."""
 
@@ -34,8 +40,10 @@ class MockRioServer:
         self.server: asyncio.AbstractServer | None = None
         self.port = 0
         self.received: list[str] = []
+        self.connections = 0
+        self.silent = False
+        """When True the server reads commands but never answers them."""
         self._writers: list[asyncio.StreamWriter] = []
-        self._watched: set[str] = set()
 
         self.zones: dict[int, dict[str, Any]] = {
             zone_id: {
@@ -60,25 +68,44 @@ class MockRioServer:
             4: {"name": "Bluetooth", "type": "Russound Bluetooth Module"},
         }
 
-    async def start(self) -> int:
-        """Start listening on an ephemeral port and return it."""
-        self.server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+    async def start(self, port: int = 0) -> int:
+        """
+        Start listening and return the port.
+
+        :param port: port to bind, or 0 for an ephemeral one. Pass the previous
+                     port to bring a stopped server back at the same address.
+        """
+        self.server = await asyncio.start_server(self._handle, "127.0.0.1", port)
         self.port = self.server.sockets[0].getsockname()[1]
         return self.port
 
-    async def stop(self) -> None:
-        """Close the listener and all client connections."""
-        for writer in self._writers:
+    @property
+    def open_connections(self) -> int:
+        """Number of client connections currently open."""
+        return len(self._writers)
+
+    async def drop_connections(self) -> None:
+        """Close every client connection but keep listening."""
+        for writer in list(self._writers):
             writer.close()
         self._writers.clear()
+
+    async def stop(self) -> None:
+        """Close the listener and all client connections."""
+        await self.drop_connections()
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+            self.server = None
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         self._writers.append(writer)
+        self.connections += 1
+        # Like the real controller, only notify about branches this particular
+        # connection has asked to WATCH. A new connection starts with none.
+        watched: set[str] = set()
         try:
             while True:
                 raw = await reader.readuntil(b"\r")
@@ -86,7 +113,13 @@ class MockRioServer:
                 if not command:
                     continue
                 self.received.append(command)
+                if self.silent:
+                    continue
+                if match := WATCH_RE.match(command):
+                    watched.add(match.group("branch"))
                 for response in self._respond(command):
+                    if response.startswith("N ") and not _is_watched(response, watched):
+                        continue
                     writer.write(f"{response}\r\n".encode("iso-8859-1"))
                 await writer.drain()
         except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.CancelledError):
@@ -94,15 +127,14 @@ class MockRioServer:
         finally:
             if writer in self._writers:
                 self._writers.remove(writer)
+            writer.close()
 
     def _respond(self, command: str) -> list[str]:
         if command == "VERSION":
             return [f'S version="{RIO_VERSION}"']
 
         if match := WATCH_RE.match(command):
-            branch = match.group("branch")
-            self._watched.add(branch)
-            return ["S", *self._snapshot(branch)]
+            return ["S", *self._snapshot(match.group("branch"))]
 
         if match := GET_RE.match(command):
             return [self._get(match.group("branch"), match.group("leaf"))]

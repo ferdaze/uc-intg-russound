@@ -22,6 +22,15 @@ port the bridge exposes instead.
 CONNECT_TIMEOUT = 10.0
 """Seconds to wait for the initial RIO handshake during setup."""
 
+RECONNECT_MIN_DELAY = 1.0
+"""Seconds to wait before the first reconnect attempt after the link drops."""
+
+RECONNECT_MAX_DELAY = 30.0
+"""Upper bound for the reconnect delay. It doubles after every failed attempt."""
+
+COMMAND_TIMEOUT = 5.0
+"""Seconds to wait for the controller to acknowledge a command."""
+
 # --------------------------------------------------------------------------
 # Volume
 # --------------------------------------------------------------------------
